@@ -232,10 +232,11 @@ public class BrokerServerView implements TimelineServerView
 
   private QueryableDruidServer addServer(DruidServer server)
   {
-    QueryableDruidServer retVal = new QueryableDruidServer<>(server, makeDirectClient(server));
-    QueryableDruidServer exists = clients.put(server.getName(), retVal);
+    QueryableDruidServer<?> retVal = new QueryableDruidServer<>(server, makeDirectClient(server));
+    QueryableDruidServer<?> exists = clients.put(server.getName(), retVal);
     if (exists != null) {
-      log.warn("QueryRunner for server[%s] already exists!? Well it's getting replaced", server);
+      log.warn("QueryRunner for server[%s] already exists!? Well it's getting closed and replaced", server);
+      exists.close();
     }
 
     return retVal;
@@ -254,12 +255,15 @@ public class BrokerServerView implements TimelineServerView
     );
   }
 
-  private QueryableDruidServer removeServer(DruidServer server)
+  private void removeServer(DruidServer server)
   {
     for (DataSegment segment : server.iterateAllSegments()) {
       serverRemovedSegment(server.getMetadata(), segment);
     }
-    return clients.remove(server.getName());
+    QueryableDruidServer<?> client = clients.remove(server.getName());
+    if (client != null) {
+      client.close();
+    }
   }
 
   private void serverAddedSegment(final DruidServerMetadata server, final DataSegment segment)
