@@ -28,13 +28,17 @@ import io.delta.kernel.Snapshot;
 import io.delta.kernel.Table;
 import io.delta.kernel.TableNotFoundException;
 import io.delta.kernel.client.TableClient;
+import io.delta.kernel.data.ColumnarBatch;
 import io.delta.kernel.data.FilteredColumnarBatch;
 import io.delta.kernel.data.Row;
 import io.delta.kernel.defaults.client.DefaultTableClient;
+import io.delta.kernel.internal.InternalScanFileUtils;
+import io.delta.kernel.internal.data.ScanStateRow;
 import io.delta.kernel.internal.util.Utils;
 import io.delta.kernel.types.StructField;
 import io.delta.kernel.types.StructType;
 import io.delta.kernel.utils.CloseableIterator;
+import io.delta.kernel.utils.FileStatus;
 import org.apache.druid.data.input.ColumnsFilter;
 import org.apache.druid.data.input.InputFormat;
 import org.apache.druid.data.input.InputRowSchema;
@@ -118,17 +122,13 @@ public class DeltaInputSource implements SplittableInputSource<DeltaSplit>
 
       if (deltaSplit != null) {
         scanState = deserialize(tableClient, deltaSplit.getStateRow());
-        scanRowList = deltaSplit.getFiles()
-                                .stream()
-                                .map(row -> deserialize(tableClient, row))
-                                .collect(Collectors.toList());
+        scanRowList =
+          deltaSplit.getFiles().stream().map(row -> deserialize(tableClient, row)).collect(Collectors.toList());
       } else {
         final Table table = Table.forPath(tableClient, tablePath);
         final Snapshot latestSnapshot = table.getLatestSnapshot(tableClient);
-        final StructType prunedSchema = pruneSchema(
-            latestSnapshot.getSchema(tableClient),
-            inputRowSchema.getColumnsFilter()
-        );
+        final StructType prunedSchema =
+            pruneSchema(latestSnapshot.getSchema(tableClient), inputRowSchema.getColumnsFilter());
         final Scan scan = latestSnapshot.getScanBuilder(tableClient).withReadSchema(tableClient, prunedSchema).build();
         final CloseableIterator<FilteredColumnarBatch> scanFiles = scan.getScanFiles(tableClient);
 
@@ -141,15 +141,29 @@ public class DeltaInputSource implements SplittableInputSource<DeltaSplit>
           scanFileRows.forEachRemaining(scanRowList::add);
         }
       }
-      return new DeltaInputSourceReader(
-          Scan.readData(
-              tableClient,
-              scanState,
-              Utils.toCloseableIterator(scanRowList.iterator()),
-              Optional.empty()
-          ),
-          inputRowSchema
-      );
+
+      List<FilteredColumnarBatch> dataBatches = new ArrayList<>();
+      final StructType physicalReadSchema = ScanStateRow.getPhysicalDataReadSchema(tableClient, scanState);
+
+      for (Row scanFileRow : scanRowList) {
+        FileStatus fileStatus = InternalScanFileUtils.getAddFileStatus(scanFileRow);
+        CloseableIterator<ColumnarBatch> physicalDataIter = tableClient.getParquetHandler().readParquetFiles(
+            Utils.singletonCloseableIterator(fileStatus),
+            physicalReadSchema,
+            Optional.empty());
+
+        try (CloseableIterator<FilteredColumnarBatch> transformedData = Scan.transformPhysicalData(
+            tableClient,
+            scanState,
+            scanFileRow,
+            physicalDataIter)) {
+          while (transformedData.hasNext()) {
+            dataBatches.add(transformedData.next());
+          }
+        }
+      }
+
+      return new DeltaInputSourceReader(Utils.toCloseableIterator(dataBatches.iterator()), inputRowSchema);
     }
     catch (TableNotFoundException e) {
       throw InvalidInput.exception(e, "tablePath[%s] not found.", tablePath);
