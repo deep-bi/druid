@@ -38,6 +38,7 @@ import org.apache.druid.query.TruncatedResponseContextException;
 import org.apache.druid.query.context.ResponseContext;
 import org.apache.druid.server.security.AuthConfig;
 import org.apache.druid.server.security.ForbiddenException;
+import org.eclipse.jetty.http.HttpFields;
 
 import javax.annotation.Nullable;
 import javax.servlet.AsyncContext;
@@ -49,6 +50,7 @@ import javax.ws.rs.core.Response;
 import java.io.Closeable;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.util.Locale;
 import java.util.Map;
 
 public abstract class QueryResultPusher
@@ -63,6 +65,7 @@ public abstract class QueryResultPusher
   private final QueryResource.QueryMetricCounter counter;
   private final MediaType contentType;
   private final Map<String, String> extraHeaders;
+  private final HttpFields trailerFields;
 
   private StreamingHttpResponseAccumulator accumulator;
   private AsyncContext asyncContext;
@@ -87,6 +90,7 @@ public abstract class QueryResultPusher
     this.counter = counter;
     this.contentType = contentType;
     this.extraHeaders = extraHeaders;
+    this.trailerFields = new HttpFields();
   }
 
   /**
@@ -141,6 +145,11 @@ public abstract class QueryResultPusher
       response.setHeader(QueryResource.QUERY_ID_RESPONSE_HEADER, queryId);
       for (Map.Entry<String, String> entry : extraHeaders.entrySet()) {
         response.setHeader(entry.getKey(), entry.getValue());
+      }
+
+      if (response instanceof org.eclipse.jetty.server.Response) {
+        org.eclipse.jetty.server.Response jettyResponse = (org.eclipse.jetty.server.Response) response;
+        jettyResponse.setTrailers(() -> trailerFields);
       }
 
       accumulator = new StreamingHttpResponseAccumulator(queryResponse.getResponseContext(), resultsWriter);
@@ -223,6 +232,8 @@ public abstract class QueryResultPusher
         // also throwing the exception body into the response to make it easier for the client to choke if it manages
         // to parse a meaningful object out, but that's potentially an API change so we leave that as an exercise for
         // the future.
+        trailerFields.put("X-Error-Message",
+            String.format(Locale.ENGLISH, "StatusCode: %s, Category: %s", e.getStatusCode(), e.getCategory()));
         return null;
       }
     }
@@ -417,6 +428,11 @@ public abstract class QueryResultPusher
 
         response.setHeader(QueryResource.HEADER_RESPONSE_CONTEXT, serializationResult.getResult());
         response.setContentType(contentType.toString());
+
+        if (response instanceof org.eclipse.jetty.server.Response) {
+          org.eclipse.jetty.server.Response jettyResponse = (org.eclipse.jetty.server.Response) response;
+          jettyResponse.setTrailers(() -> trailerFields);
+        }
 
         try {
           out = new CountingOutputStream(response.getOutputStream());
