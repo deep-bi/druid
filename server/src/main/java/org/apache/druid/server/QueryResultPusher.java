@@ -39,6 +39,7 @@ import org.apache.druid.query.context.ResponseContext;
 import org.apache.druid.server.security.AuthConfig;
 import org.apache.druid.server.security.ForbiddenException;
 import org.eclipse.jetty.http.HttpFields;
+import org.eclipse.jetty.http.HttpHeader;
 
 import javax.annotation.Nullable;
 import javax.servlet.AsyncContext;
@@ -125,6 +126,7 @@ public abstract class QueryResultPusher
       final Response.ResponseBuilder startResponse = resultsWriter.start();
       if (startResponse != null) {
         startResponse.header(QueryResource.QUERY_ID_RESPONSE_HEADER, queryId);
+        startResponse.header(HttpHeader.TRAILER.toString(), QueryResource.ERROR_MESSAGE_TRAILER_HEADER);
         for (Map.Entry<String, String> entry : extraHeaders.entrySet()) {
           startResponse.header(entry.getKey(), entry.getValue());
         }
@@ -142,6 +144,7 @@ public abstract class QueryResultPusher
       // Response until it has consumed the underlying Sequence.
       asyncContext = request.startAsync();
       response = (HttpServletResponse) asyncContext.getResponse();
+      response.setHeader(HttpHeader.TRAILER.toString(), QueryResource.ERROR_MESSAGE_TRAILER_HEADER);
       response.setHeader(QueryResource.QUERY_ID_RESPONSE_HEADER, queryId);
       for (Map.Entry<String, String> entry : extraHeaders.entrySet()) {
         response.setHeader(entry.getKey(), entry.getValue());
@@ -232,7 +235,7 @@ public abstract class QueryResultPusher
         // also throwing the exception body into the response to make it easier for the client to choke if it manages
         // to parse a meaningful object out, but that's potentially an API change so we leave that as an exercise for
         // the future.
-        trailerFields.put("X-Error-Message",
+        trailerFields.put(QueryResource.ERROR_MESSAGE_TRAILER_HEADER,
             String.format(Locale.ENGLISH, "StatusCode: %s, Category: %s", e.getStatusCode(), e.getCategory()));
         return null;
       }
