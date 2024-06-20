@@ -51,7 +51,6 @@ import javax.ws.rs.core.Response;
 import java.io.Closeable;
 import java.io.IOException;
 import java.io.OutputStream;
-import java.util.Locale;
 import java.util.Map;
 
 public abstract class QueryResultPusher
@@ -66,6 +65,7 @@ public abstract class QueryResultPusher
   private final QueryResource.QueryMetricCounter counter;
   private final MediaType contentType;
   private final Map<String, String> extraHeaders;
+  private final boolean includeTrailerHeader;
   private final HttpFields trailerFields;
 
   private StreamingHttpResponseAccumulator accumulator;
@@ -80,7 +80,8 @@ public abstract class QueryResultPusher
       QueryResource.QueryMetricCounter counter,
       String queryId,
       MediaType contentType,
-      Map<String, String> extraHeaders
+      Map<String, String> extraHeaders,
+      boolean includeTrailerHeader
   )
   {
     this.request = request;
@@ -91,6 +92,7 @@ public abstract class QueryResultPusher
     this.counter = counter;
     this.contentType = contentType;
     this.extraHeaders = extraHeaders;
+    this.includeTrailerHeader = includeTrailerHeader;
     this.trailerFields = new HttpFields();
   }
 
@@ -144,14 +146,15 @@ public abstract class QueryResultPusher
       // Response until it has consumed the underlying Sequence.
       asyncContext = request.startAsync();
       response = (HttpServletResponse) asyncContext.getResponse();
-      response.setHeader(HttpHeader.TRAILER.toString(), QueryResource.ERROR_MESSAGE_TRAILER_HEADER);
       response.setHeader(QueryResource.QUERY_ID_RESPONSE_HEADER, queryId);
       for (Map.Entry<String, String> entry : extraHeaders.entrySet()) {
         response.setHeader(entry.getKey(), entry.getValue());
       }
 
-      if (response instanceof org.eclipse.jetty.server.Response) {
+      if (includeTrailerHeader && response instanceof org.eclipse.jetty.server.Response) {
         org.eclipse.jetty.server.Response jettyResponse = (org.eclipse.jetty.server.Response) response;
+
+        jettyResponse.setHeader(HttpHeader.TRAILER.toString(), QueryResource.ERROR_MESSAGE_TRAILER_HEADER);
         jettyResponse.setTrailers(() -> trailerFields);
       }
 
@@ -235,8 +238,10 @@ public abstract class QueryResultPusher
         // also throwing the exception body into the response to make it easier for the client to choke if it manages
         // to parse a meaningful object out, but that's potentially an API change so we leave that as an exercise for
         // the future.
-        trailerFields.put(QueryResource.ERROR_MESSAGE_TRAILER_HEADER,
-            String.format(Locale.ENGLISH, "StatusCode: %s, Category: %s", e.getStatusCode(), e.getCategory()));
+
+        if (includeTrailerHeader) {
+          trailerFields.put(QueryResource.ERROR_MESSAGE_TRAILER_HEADER, e.getMessage());
+        }
         return null;
       }
     }
@@ -432,7 +437,7 @@ public abstract class QueryResultPusher
         response.setHeader(QueryResource.HEADER_RESPONSE_CONTEXT, serializationResult.getResult());
         response.setContentType(contentType.toString());
 
-        if (response instanceof org.eclipse.jetty.server.Response) {
+        if (includeTrailerHeader && response instanceof org.eclipse.jetty.server.Response) {
           org.eclipse.jetty.server.Response jettyResponse = (org.eclipse.jetty.server.Response) response;
           jettyResponse.setTrailers(() -> trailerFields);
         }

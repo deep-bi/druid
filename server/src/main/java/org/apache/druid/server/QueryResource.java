@@ -493,7 +493,8 @@ public class QueryResource implements QueryCountStatsProvider
           QueryResource.this.counter,
           queryLifecycle.getQueryId(),
           MediaType.valueOf(io.getResponseWriter().getResponseType()),
-          ImmutableMap.of()
+          ImmutableMap.of(),
+          queryLifecycle.getQuery().context().getBoolean("includeTrailerHeader", false)
       );
       this.req = req;
       this.queryLifecycle = queryLifecycle;
