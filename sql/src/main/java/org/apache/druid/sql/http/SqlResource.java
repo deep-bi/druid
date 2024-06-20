@@ -226,7 +226,8 @@ public class SqlResource
           SqlResource.QUERY_METRIC_COUNTER,
           sqlQueryId,
           MediaType.APPLICATION_JSON_TYPE,
-          headers
+          headers,
+          sqlQuery.queryContext().getBoolean("includeTrailerHeader", false)
       );
       this.sqlQueryId = sqlQueryId;
       this.stmt = stmt;
