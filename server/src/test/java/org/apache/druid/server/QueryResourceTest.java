@@ -53,6 +53,7 @@ import org.apache.druid.query.DefaultQueryConfig;
 import org.apache.druid.query.MapQueryToolChestWarehouse;
 import org.apache.druid.query.Query;
 import org.apache.druid.query.QueryCapacityExceededException;
+import org.apache.druid.query.QueryContexts;
 import org.apache.druid.query.QueryException;
 import org.apache.druid.query.QueryInterruptedException;
 import org.apache.druid.query.QueryRunner;
@@ -267,8 +268,8 @@ public class QueryResourceTest
   {
     final String overrideConfigKey = "priority";
     final String overrideConfigValue = "678";
-    final String overrideIncludeTrailerHeader = "includeTrailerHeader";
-    DefaultQueryConfig overrideConfig = new DefaultQueryConfig(ImmutableMap.of(overrideConfigKey, overrideConfigValue, overrideIncludeTrailerHeader, true));
+    DefaultQueryConfig overrideConfig = new DefaultQueryConfig(ImmutableMap.of(overrideConfigKey, overrideConfigValue,
+        QueryContexts.INCLUDE_TRAILER_HEADER, true));
     queryResource = new QueryResource(
         new QueryLifecycleFactory(
             WAREHOUSE,
@@ -316,7 +317,7 @@ public class QueryResourceTest
     );
     Assert.assertEquals(
         overrideConfigValue,
-        testRequestLogger.getNativeQuerylogs().get(0).getQuery().getContext().get(overrideIncludeTrailerHeader)
+        testRequestLogger.getNativeQuerylogs().get(0).getQuery().getContext().get(QueryContexts.INCLUDE_TRAILER_HEADER)
     );
   }
 
@@ -392,13 +393,13 @@ public class QueryResourceTest
         testRequestLogger.getNativeQuerylogs().get(0).getQuery().getContext().get(overrideConfigKey)
     );
     Assert.assertFalse(
-        testRequestLogger.getNativeQuerylogs().get(0).getQuery().getContext().containsKey("includeTrailerHeader"));
+        testRequestLogger.getNativeQuerylogs().get(0).getQuery().getContext().containsKey(QueryContexts.INCLUDE_TRAILER_HEADER));
   }
 
   @Test
   public void testResponseWithIncludeTrailerHeader() throws IOException
   {
-    DefaultQueryConfig overrideConfig = new DefaultQueryConfig(ImmutableMap.of("includeTrailerHeader", true));
+    DefaultQueryConfig overrideConfig = new DefaultQueryConfig(ImmutableMap.of(QueryContexts.INCLUDE_TRAILER_HEADER, true));
 
     queryResource = new QueryResource(
       new QueryLifecycleFactory(

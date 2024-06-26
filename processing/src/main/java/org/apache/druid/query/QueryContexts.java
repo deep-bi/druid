@@ -87,6 +87,7 @@ public class QueryContexts
   public static final String MIN_TOP_N_THRESHOLD = "minTopNThreshold";
   public static final String WINDOWING_STRICT_VALIDATION = "windowingStrictValidation";
 
+  public static final String INCLUDE_TRAILER_HEADER = "includeTrailerHeader";
 
   // SQL query context keys
   public static final String CTX_SQL_QUERY_ID = BaseQuery.SQL_QUERY_ID;
