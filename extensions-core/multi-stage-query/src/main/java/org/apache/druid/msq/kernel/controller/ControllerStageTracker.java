@@ -48,6 +48,7 @@ import org.apache.druid.msq.kernel.ShuffleKind;
 import org.apache.druid.msq.kernel.ShuffleSpec;
 import org.apache.druid.msq.kernel.StageDefinition;
 import org.apache.druid.msq.kernel.WorkerAssignmentStrategy;
+import org.apache.druid.msq.querykit.common.OffsetLimitFrameProcessorFactory;
 import org.apache.druid.msq.statistics.ClusterByStatisticsCollector;
 import org.apache.druid.msq.statistics.ClusterByStatisticsSnapshot;
 import org.apache.druid.msq.statistics.CompleteKeyStatisticsInformation;
@@ -897,23 +898,30 @@ class ControllerStageTracker
         resultPartitions = ReadablePartitions.striped(stageNumber, workerCount, shuffleSpec.partitionCount());
       }
     } else {
-      // No reshuffling: retain partitioning from nonbroadcast inputs.
-      final Int2IntSortedMap partitionToWorkerMap = new Int2IntAVLTreeMap();
-      for (int workerNumber : workerInputs.workers()) {
-        final List<InputSlice> slices = workerInputs.inputsForWorker(workerNumber);
-        for (int inputNumber = 0; inputNumber < slices.size(); inputNumber++) {
-          final InputSlice slice = slices.get(inputNumber);
+      // workaround for RuntimeException in ordered and limited scan queries
+      // as Limit processor creates only one partition so far
+      if (stageDef.getProcessorFactory() instanceof OffsetLimitFrameProcessorFactory) {
+        resultPartitionBoundaries = ClusterByPartitions.oneUniversalPartition();
+        resultPartitions = ReadablePartitions.striped(stageNumber, workerCount, 1);
+      } else {
+        // No reshuffling: retain partitioning from nonbroadcast inputs.
+        final Int2IntSortedMap partitionToWorkerMap = new Int2IntAVLTreeMap();
+        for (int workerNumber : workerInputs.workers()) {
+          final List<InputSlice> slices = workerInputs.inputsForWorker(workerNumber);
+          for (int inputNumber = 0; inputNumber < slices.size(); inputNumber++) {
+            final InputSlice slice = slices.get(inputNumber);
 
-          if (slice instanceof StageInputSlice && !stageDef.getBroadcastInputNumbers().contains(inputNumber)) {
-            final StageInputSlice stageInputSlice = (StageInputSlice) slice;
-            for (final ReadablePartition partition : stageInputSlice.getPartitions()) {
-              partitionToWorkerMap.put(partition.getPartitionNumber(), workerNumber);
+            if (slice instanceof StageInputSlice && !stageDef.getBroadcastInputNumbers().contains(inputNumber)) {
+              final StageInputSlice stageInputSlice = (StageInputSlice) slice;
+              for (final ReadablePartition partition : stageInputSlice.getPartitions()) {
+                partitionToWorkerMap.put(partition.getPartitionNumber(), workerNumber);
+              }
             }
           }
         }
-      }
 
-      resultPartitions = ReadablePartitions.collected(stageNumber, partitionToWorkerMap);
+        resultPartitions = ReadablePartitions.collected(stageNumber, partitionToWorkerMap);
+      }
     }
   }
 
