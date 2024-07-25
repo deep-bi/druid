@@ -206,4 +206,51 @@ public class MSQExportTest extends MSQTestBase
       Assert.assertNull(bufferedReader.readLine());
     }
   }
+
+  @Test
+  public void testExportWithLimit() throws IOException
+  {
+    RowSignature rowSignature = RowSignature.builder()
+                                            .add("__time", ColumnType.LONG)
+                                            .add("dim1", ColumnType.STRING)
+                                            .add("cnt", ColumnType.LONG).build();
+
+    File exportDir = newTempFolder("export");
+
+    Map<String, Object> queryContext = new HashMap<>(DEFAULT_MSQ_CONTEXT);
+    queryContext.put(MultiStageQueryContext.CTX_ROWS_PER_PAGE, 1);
+
+    final String sql = StringUtils.format("insert into extern(local(exportPath=>'%s')) as csv select cnt, dim1 from foo limit 3", exportDir.getAbsolutePath());
+
+    testIngestQuery().setSql(sql)
+                     .setExpectedDataSource("foo1")
+                     .setQueryContext(queryContext)
+                     .setExpectedRowSignature(rowSignature)
+                     .setExpectedSegment(ImmutableSet.of())
+                     .setExpectedResultRows(ImmutableList.of())
+                     .verifyResults();
+
+    Assert.assertEquals(
+        ImmutableList.of(
+            "cnt,dim1",
+            "1,"
+        ),
+        readResultsFromFile(new File(exportDir, "query-test-query-worker0-partition0.csv"))
+    );
+    Assert.assertEquals(
+        ImmutableList.of(
+            "cnt,dim1",
+            "1,10.1"
+        ),
+        readResultsFromFile(new File(exportDir, "query-test-query-worker0-partition1.csv"))
+    );
+    Assert.assertEquals(
+        ImmutableList.of(
+            "cnt,dim1",
+            "1,2"
+        ),
+        readResultsFromFile(new File(exportDir, "query-test-query-worker0-partition2.csv"))
+    );
+  }
+
 }
