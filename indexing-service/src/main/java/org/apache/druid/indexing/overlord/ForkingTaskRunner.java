@@ -711,6 +711,12 @@ public class ForkingTaskRunner
 
   public long getTotalTaskSlotCountLong()
   {
+    return getTotalCapacity();
+  }
+
+  @Override
+  public int getTotalCapacity()
+  {
     return workerConfig.getCapacity();
   }
 

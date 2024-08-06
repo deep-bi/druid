@@ -104,7 +104,7 @@ public class TaskQueueTest extends IngestionTestBase
     final TaskActionClientFactory actionClientFactory = createActionClientFactory();
     final TaskQueue taskQueue = new TaskQueue(
         new TaskLockConfig(),
-        new TaskQueueConfig(null, null, null, null, null),
+        new TaskQueueConfig(null, null, null, null, null, null, null),
         new DefaultTaskConfig(),
         getTaskStorage(),
         new SimpleTaskRunner(actionClientFactory),
@@ -149,7 +149,7 @@ public class TaskQueueTest extends IngestionTestBase
     final TaskActionClientFactory actionClientFactory = createActionClientFactory();
     final TaskQueue taskQueue = new TaskQueue(
         new TaskLockConfig(),
-        new TaskQueueConfig(null, null, null, null, null),
+        new TaskQueueConfig(null, null, null, null, null, null, null),
         new DefaultTaskConfig(),
         getTaskStorage(),
         new SimpleTaskRunner(actionClientFactory),
@@ -189,7 +189,7 @@ public class TaskQueueTest extends IngestionTestBase
     final TaskActionClientFactory actionClientFactory = createActionClientFactory();
     final TaskQueue taskQueue = new TaskQueue(
             new TaskLockConfig(),
-            new TaskQueueConfig(1, null, null, null, null),
+            new TaskQueueConfig(1, null, null, null, null, null, null),
             new DefaultTaskConfig(),
             getTaskStorage(),
             new SimpleTaskRunner(actionClientFactory),
@@ -214,7 +214,7 @@ public class TaskQueueTest extends IngestionTestBase
     final TaskActionClientFactory actionClientFactory = createActionClientFactory();
     final TaskQueue taskQueue = new TaskQueue(
         new TaskLockConfig(),
-        new TaskQueueConfig(null, null, null, null, null),
+        new TaskQueueConfig(null, null, null, null, null, null, null),
         new DefaultTaskConfig(),
         getTaskStorage(),
         new SimpleTaskRunner(actionClientFactory),
@@ -239,7 +239,7 @@ public class TaskQueueTest extends IngestionTestBase
     final TaskActionClientFactory actionClientFactory = createActionClientFactory();
     final TaskQueue taskQueue = new TaskQueue(
         new TaskLockConfig(),
-        new TaskQueueConfig(null, null, null, null, null),
+        new TaskQueueConfig(null, null, null, null, null, null, null),
         new DefaultTaskConfig()
         {
           @Override
@@ -274,7 +274,7 @@ public class TaskQueueTest extends IngestionTestBase
     final TaskActionClientFactory actionClientFactory = createActionClientFactory();
     final TaskQueue taskQueue = new TaskQueue(
         new TaskLockConfig(),
-        new TaskQueueConfig(null, null, null, null, null),
+        new TaskQueueConfig(null, null, null, null, null, null, null),
         new DefaultTaskConfig(),
         getTaskStorage(),
         new SimpleTaskRunner(actionClientFactory),
@@ -306,7 +306,7 @@ public class TaskQueueTest extends IngestionTestBase
     final TaskActionClientFactory actionClientFactory = createActionClientFactory();
     final TaskQueue taskQueue = new TaskQueue(
         new TaskLockConfig(),
-        new TaskQueueConfig(null, null, null, null, null),
+        new TaskQueueConfig(null, null, null, null, null, null, null),
         new DefaultTaskConfig()
         {
           @Override
@@ -339,7 +339,7 @@ public class TaskQueueTest extends IngestionTestBase
     final TaskActionClientFactory actionClientFactory = createActionClientFactory();
     final TaskQueue taskQueue = new TaskQueue(
         new TaskLockConfig(),
-        new TaskQueueConfig(null, null, null, null, null),
+        new TaskQueueConfig(null, null, null, null, null, null, null),
         new DefaultTaskConfig(),
         getTaskStorage(),
         new SimpleTaskRunner(actionClientFactory),
@@ -369,7 +369,7 @@ public class TaskQueueTest extends IngestionTestBase
     final TaskActionClientFactory actionClientFactory = createActionClientFactory();
     final TaskQueue taskQueue = new TaskQueue(
         new TaskLockConfig(),
-        new TaskQueueConfig(null, null, null, null, null),
+        new TaskQueueConfig(null, null, null, null, null, null, null),
         new DefaultTaskConfig(),
         getTaskStorage(),
         new SimpleTaskRunner(actionClientFactory),
@@ -416,7 +416,7 @@ public class TaskQueueTest extends IngestionTestBase
     EasyMock.replay(workerHolder);
     final TaskQueue taskQueue = new TaskQueue(
         new TaskLockConfig(),
-        new TaskQueueConfig(null, null, null, null, null),
+        new TaskQueueConfig(null, null, null, null, null, null, null),
         new DefaultTaskConfig(),
         getTaskStorage(),
         taskRunner,

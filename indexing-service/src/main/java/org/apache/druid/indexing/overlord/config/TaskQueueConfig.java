@@ -25,6 +25,8 @@ import org.apache.druid.common.config.Configs;
 import org.joda.time.Duration;
 import org.joda.time.Period;
 
+import javax.annotation.Nullable;
+
 public class TaskQueueConfig
 {
   @JsonProperty
@@ -42,13 +44,24 @@ public class TaskQueueConfig
   @JsonProperty
   private int taskCompleteHandlerNumThreads;
 
+  @Nullable
+  @JsonProperty
+  private Float controllerTaskSlotRatio;
+
+  @Nullable
+  @JsonProperty
+  private Integer maxControllerTaskSlots;
+
   @JsonCreator
   public TaskQueueConfig(
       @JsonProperty("maxSize") final Integer maxSize,
       @JsonProperty("startDelay") final Period startDelay,
       @JsonProperty("restartDelay") final Period restartDelay,
       @JsonProperty("storageSyncRate") final Period storageSyncRate,
-      @JsonProperty("taskCompleteHandlerNumThreads") final Integer taskCompleteHandlerNumThreads
+      @JsonProperty("taskCompleteHandlerNumThreads") final Integer taskCompleteHandlerNumThreads,
+      @Nullable @JsonProperty("controllerTaskSlotRatio") final Float controllerTaskSlotRatio,
+      @Nullable @JsonProperty("maxControllerTaskSlots") final Integer maxControllerTaskSlots
+
   )
   {
     this.maxSize = Configs.valueOrDefault(maxSize, Integer.MAX_VALUE);
@@ -56,6 +69,20 @@ public class TaskQueueConfig
     this.startDelay = defaultDuration(startDelay, "PT1M");
     this.restartDelay = defaultDuration(restartDelay, "PT30S");
     this.storageSyncRate = defaultDuration(storageSyncRate, "PT1M");
+    if (controllerTaskSlotRatio != null && maxControllerTaskSlots != null) {
+      throw new IllegalArgumentException(
+          "Only one controller task limit parameter should be specified, controllerTaskSlotRatio or maxControllerTaskSlots");
+    } else if (controllerTaskSlotRatio != null && controllerTaskSlotRatio > 1 && controllerTaskSlotRatio <= 0) {
+      throw new IllegalArgumentException(
+          "controllerTaskSlotRatio is out of range (0;1]");
+    }
+    this.controllerTaskSlotRatio = controllerTaskSlotRatio;
+    this.maxControllerTaskSlots = maxControllerTaskSlots;
+  }
+
+  private static Duration defaultDuration(final Period period, final String theDefault)
+  {
+    return (period == null ? new Period(theDefault) : period).toStandardDuration();
   }
 
   public int getMaxSize()
@@ -83,8 +110,15 @@ public class TaskQueueConfig
     return storageSyncRate;
   }
 
-  private static Duration defaultDuration(final Period period, final String theDefault)
+  @Nullable
+  public Float getControllerTaskSlotRatio()
   {
-    return (period == null ? new Period(theDefault) : period).toStandardDuration();
+    return controllerTaskSlotRatio;
+  }
+
+  @Nullable
+  public Integer getMaxControllerTaskSlots()
+  {
+    return maxControllerTaskSlots;
   }
 }
