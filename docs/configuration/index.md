@@ -1111,6 +1111,8 @@ These Overlord static configurations can be defined in the `overlord/runtime.pro
 |`druid.indexer.queue.startDelay`|Sleep this long before starting Overlord queue management. This can be useful to give a cluster time to re-orient itself (for example, after a widespread network issue).|`PT1M`|
 |`druid.indexer.queue.restartDelay`|Sleep this long when Overlord queue management throws an exception before trying again.|`PT30S`|
 |`druid.indexer.queue.storageSyncRate`|Sync Overlord state this often with an underlying task persistence mechanism.|`PT1M`|
+|`druid.indexer.queue.controllerTaskSlotRatio`|Optional value which defines the proportion of available task slots that can be allocated to msq controller tasks. This is a floating-point value between 0 and 1. |`null`|
+|`druid.indexer.queue.maxControllerTaskSlots`|Optional value which specifies the maximum number of task slots that can be allocated to controller tasks. This is an integer value that provides a hard limit on the number of task slots available for msq controller tasks.|`null`|
 
 The following configs only apply if the Overlord is running in remote mode. For a description of local vs. remote mode, see [Overlord service](../design/overlord.md).
 
