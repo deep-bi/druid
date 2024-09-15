@@ -33,7 +33,7 @@
   <modelVersion>4.0.0</modelVersion>
 
   <properties>
-    <delta-kernel.version>3.1.0</delta-kernel.version>
+    <delta-kernel.version>3.2.0</delta-kernel.version>
   </properties>
 
   <dependencies>
@@ -42,12 +42,17 @@
       <artifactId>delta-kernel-api</artifactId>
       <version>${delta-kernel.version}</version>
     </dependency>
-
     <dependency>
       <groupId>io.delta</groupId>
       <artifactId>delta-kernel-defaults</artifactId>
       <version>${delta-kernel.version}</version>
     </dependency>
+    <dependency>
+      <groupId>io.delta</groupId>
+      <artifactId>delta-storage</artifactId>
+      <version>${delta-kernel.version}</version>
+    </dependency>
+
     <dependency>
       <groupId>org.apache.hadoop</groupId>
       <artifactId>hadoop-client-api</artifactId>
