@@ -48,6 +48,31 @@ git clone git@github.com:apache/druid.git
 cd druid
 ```
 
+Pre commands required to use `10.14.3.0` version of `derby`
+
+```bash
+mvn install:install-file \
+    -Dfile=libs/derby.jar \
+    -DgroupId=org.apache.derby \
+    -DartifactId=derby \
+    -Dversion=10.14.3.0 \
+    -Dpackaging=jar
+
+ mvn install:install-file \
+    -Dfile=libs/derbyclient.jar \
+    -DgroupId=org.apache.derby \
+    -DartifactId=derbyclient \
+    -Dversion=10.14.3.0 \
+    -Dpackaging=jar
+
+ mvn install:install-file \
+    -Dfile=libs/derbynet.jar \
+    -DgroupId=org.apache.derby \
+    -DartifactId=derbynet \
+    -Dversion=10.14.3.0 \
+    -Dpackaging=jar
+```
+
 #### Building from source
 
 The basic command to build Druid from source is:
