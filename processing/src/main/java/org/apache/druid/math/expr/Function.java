@@ -4041,7 +4041,10 @@ public interface Function extends NamedFunction
           final Object[] rhsArray = rhsEval.castTo(lhsArrayType).asArray();
           return new ContainsConstantArray(rhsArray);
         } else {
-          final Object val = rhsEval.castTo((ExpressionType) lhsArrayType.getElementType()).value();
+          final ExpressionType lhsElementType = lhsArrayType == ExpressionType.NESTED_DATA
+                                                ? lhsArrayType
+                                                : (ExpressionType) lhsArrayType.getElementType();
+          final Object val = rhsEval.castTo(lhsElementType).value();
           return new ContainsConstantScalar(val);
         }
       }
