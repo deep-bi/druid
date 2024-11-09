@@ -22,6 +22,7 @@ package org.apache.druid.math.expr;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import it.unimi.dsi.fastutil.objects.ObjectAVLTreeSet;
+import org.apache.commons.lang.ObjectUtils;
 import org.apache.druid.common.config.NullHandling;
 import org.apache.druid.error.DruidException;
 import org.apache.druid.java.util.common.DateTimes;
@@ -4041,9 +4042,8 @@ public interface Function extends NamedFunction
           final Object[] rhsArray = rhsEval.castTo(lhsArrayType).asArray();
           return new ContainsConstantArray(rhsArray);
         } else {
-          final ExpressionType lhsElementType = lhsArrayType == ExpressionType.NESTED_DATA
-                                                ? lhsArrayType
-                                                : (ExpressionType) lhsArrayType.getElementType();
+          final ExpressionType lhsElementType = (ExpressionType) ObjectUtils.defaultIfNull(
+              lhsArrayType.getElementType(), lhsArrayType);
           final Object val = rhsEval.castTo(lhsElementType).value();
           return new ContainsConstantScalar(val);
         }
