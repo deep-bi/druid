@@ -1231,7 +1231,8 @@ public class SqlSegmentsMetadataManager implements SegmentsMetadataManager
       return segment;
     }
     DataSegment alreadyExistingSegment = dataSource.getSegment(segment.getId());
-    return alreadyExistingSegment != null ? alreadyExistingSegment : segment;
+    return alreadyExistingSegment != null && Objects.equals(alreadyExistingSegment.getLoadSpec(), segment.getLoadSpec())
+           ? alreadyExistingSegment : segment;
   }
 
   private String getSegmentsTable()
