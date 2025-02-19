@@ -177,7 +177,7 @@ public class FillCapacityWithCategorySpecWorkerSelectStrategyTest
   private ImmutableWorkerInfo selectWorker(WorkerCategorySpec workerCategorySpec)
   {
     final FillCapacityWithCategorySpecWorkerSelectStrategy strategy = new FillCapacityWithCategorySpecWorkerSelectStrategy(
-        workerCategorySpec);
+        workerCategorySpec, null);
 
     ImmutableWorkerInfo worker = strategy.findWorkerForTask(
         new RemoteTaskRunnerConfig(),
