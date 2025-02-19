@@ -33,6 +33,7 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
+ *
  */
 public class EqualDistributionWorkerSelectStrategy implements WorkerSelectStrategy
 {
@@ -42,10 +43,18 @@ public class EqualDistributionWorkerSelectStrategy implements WorkerSelectStrate
   @JsonCreator
   public EqualDistributionWorkerSelectStrategy(
       @JsonProperty("affinityConfig") AffinityConfig affinityConfig,
-      @JsonProperty("taskLimits") @Nullable TaskLimits taskLimits  )
+      @JsonProperty("taskLimits") @Nullable TaskLimits taskLimits
+  )
   {
     this.affinityConfig = affinityConfig;
     this.taskLimits = Configs.valueOrDefault(taskLimits, new TaskLimits());
+  }
+
+  static ImmutableWorkerInfo selectFromEligibleWorkers(final Map<String, ImmutableWorkerInfo> eligibleWorkers)
+  {
+    return eligibleWorkers.values().stream().max(
+        Comparator.comparing(ImmutableWorkerInfo::getAvailableCapacity)
+    ).orElse(null);
   }
 
   @JsonProperty
@@ -59,7 +68,6 @@ public class EqualDistributionWorkerSelectStrategy implements WorkerSelectStrate
   {
     return taskLimits;
   }
-
 
   @Override
   public ImmutableWorkerInfo findWorkerForTask(
@@ -76,13 +84,6 @@ public class EqualDistributionWorkerSelectStrategy implements WorkerSelectStrate
         EqualDistributionWorkerSelectStrategy::selectFromEligibleWorkers,
         taskLimits
     );
-  }
-
-  static ImmutableWorkerInfo selectFromEligibleWorkers(final Map<String, ImmutableWorkerInfo> eligibleWorkers)
-  {
-    return eligibleWorkers.values().stream().max(
-        Comparator.comparing(ImmutableWorkerInfo::getAvailableCapacity)
-    ).orElse(null);
   }
 
   @Override

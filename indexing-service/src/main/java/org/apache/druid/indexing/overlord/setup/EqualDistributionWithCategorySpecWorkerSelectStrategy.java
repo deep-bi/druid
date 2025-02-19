@@ -38,7 +38,8 @@ public class EqualDistributionWithCategorySpecWorkerSelectStrategy implements Wo
   @JsonCreator
   public EqualDistributionWithCategorySpecWorkerSelectStrategy(
       @JsonProperty("workerCategorySpec") WorkerCategorySpec workerCategorySpec,
-      @JsonProperty("taskLimits") @Nullable TaskLimits taskLimits  )
+      @JsonProperty("taskLimits") @Nullable TaskLimits taskLimits
+  )
   {
     this.workerCategorySpec = workerCategorySpec;
     this.taskLimits = Configs.valueOrDefault(taskLimits, new TaskLimits());
@@ -87,7 +88,8 @@ public class EqualDistributionWithCategorySpecWorkerSelectStrategy implements Wo
     if (!Objects.equals(workerCategorySpec, that.workerCategorySpec)) {
       return false;
     }
-    return Objects.equals(taskLimits, that.taskLimits);  }
+    return Objects.equals(taskLimits, that.taskLimits);
+  }
 
   @Override
   public int hashCode()

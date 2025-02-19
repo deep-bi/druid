@@ -40,10 +40,18 @@ public class FillCapacityWorkerSelectStrategy implements WorkerSelectStrategy
   @JsonCreator
   public FillCapacityWorkerSelectStrategy(
       @JsonProperty("affinityConfig") AffinityConfig affinityConfig,
-      @JsonProperty("taskLimits") @Nullable TaskLimits taskLimits  )
+      @JsonProperty("taskLimits") @Nullable TaskLimits taskLimits
+  )
   {
     this.affinityConfig = affinityConfig;
     this.taskLimits = Configs.valueOrDefault(taskLimits, new TaskLimits());
+  }
+
+  static ImmutableWorkerInfo selectFromEligibleWorkers(final Map<String, ImmutableWorkerInfo> eligibleWorkers)
+  {
+    return eligibleWorkers.values().stream().max(
+        Comparator.comparing(ImmutableWorkerInfo::getCurrCapacityUsed)
+    ).orElse(null);
   }
 
   @JsonProperty
@@ -75,13 +83,6 @@ public class FillCapacityWorkerSelectStrategy implements WorkerSelectStrategy
     );
   }
 
-  static ImmutableWorkerInfo selectFromEligibleWorkers(final Map<String, ImmutableWorkerInfo> eligibleWorkers)
-  {
-    return eligibleWorkers.values().stream().max(
-        Comparator.comparing(ImmutableWorkerInfo::getCurrCapacityUsed)
-    ).orElse(null);
-  }
-
   @Override
   public boolean equals(final Object o)
   {
@@ -95,14 +96,16 @@ public class FillCapacityWorkerSelectStrategy implements WorkerSelectStrategy
     if (!Objects.equals(affinityConfig, that.affinityConfig)) {
       return false;
     }
-    return Objects.equals(taskLimits, that.taskLimits);  }
+    return Objects.equals(taskLimits, that.taskLimits);
+  }
 
   @Override
   public int hashCode()
   {
     int result = affinityConfig != null ? affinityConfig.hashCode() : 0;
     result = 31 * result + (taskLimits != null ? taskLimits.hashCode() : 0);
-    return result;  }
+    return result;
+  }
 
   @Override
   public String toString()

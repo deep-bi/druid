@@ -88,7 +88,8 @@ public class FillCapacityWithCategorySpecWorkerSelectStrategy implements WorkerS
     if (!Objects.equals(workerCategorySpec, that.workerCategorySpec)) {
       return false;
     }
-    return Objects.equals(taskLimits, that.taskLimits);  }
+    return Objects.equals(taskLimits, that.taskLimits);
+  }
 
   @Override
   public int hashCode()
