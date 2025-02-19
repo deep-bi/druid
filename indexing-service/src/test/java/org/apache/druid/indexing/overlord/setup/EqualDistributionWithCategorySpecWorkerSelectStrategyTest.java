@@ -177,7 +177,8 @@ public class EqualDistributionWithCategorySpecWorkerSelectStrategyTest
   private ImmutableWorkerInfo selectWorker(WorkerCategorySpec workerCategorySpec)
   {
     final EqualDistributionWithCategorySpecWorkerSelectStrategy strategy = new EqualDistributionWithCategorySpecWorkerSelectStrategy(
-        workerCategorySpec);
+        workerCategorySpec,
+        null);
 
     ImmutableWorkerInfo worker = strategy.findWorkerForTask(
         new RemoteTaskRunnerConfig(),
