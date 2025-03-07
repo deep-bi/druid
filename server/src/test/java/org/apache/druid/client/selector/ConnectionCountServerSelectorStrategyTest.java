@@ -21,7 +21,6 @@ package org.apache.druid.client.selector;
 
 import org.apache.druid.client.DirectDruidClient;
 import org.apache.druid.client.DruidServer;
-import org.apache.druid.client.QueryableDruidServer;
 import org.apache.druid.java.util.common.DateTimes;
 import org.apache.druid.java.util.common.Intervals;
 import org.apache.druid.server.coordination.ServerType;
