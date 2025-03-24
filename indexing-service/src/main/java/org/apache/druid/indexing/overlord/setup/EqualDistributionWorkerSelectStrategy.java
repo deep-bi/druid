@@ -47,7 +47,7 @@ public class EqualDistributionWorkerSelectStrategy implements WorkerSelectStrate
   )
   {
     this.affinityConfig = affinityConfig;
-    this.taskLimits = Configs.valueOrDefault(taskLimits, new TaskLimits());
+    this.taskLimits = Configs.valueOrDefault(taskLimits, TaskLimits.EMPTY);
   }
 
   static ImmutableWorkerInfo selectFromEligibleWorkers(final Map<String, ImmutableWorkerInfo> eligibleWorkers)
@@ -96,16 +96,14 @@ public class EqualDistributionWorkerSelectStrategy implements WorkerSelectStrate
       return false;
     }
     final EqualDistributionWorkerSelectStrategy that = (EqualDistributionWorkerSelectStrategy) o;
-    if (!Objects.equals(affinityConfig, that.affinityConfig)) {
-      return false;
-    }
-    return Objects.equals(taskLimits, that.taskLimits);
+    return Objects.equals(affinityConfig, that.affinityConfig)
+           && Objects.equals(taskLimits, that.taskLimits);
   }
 
   @Override
   public int hashCode()
   {
-    return Objects.hash(affinityConfig);
+    return Objects.hash(affinityConfig, taskLimits);
   }
 
   @Override
