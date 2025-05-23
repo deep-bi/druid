@@ -70,6 +70,7 @@ public abstract class TuningConfigBuilder<C>
   protected Long awaitSegmentAvailabilityTimeoutMillis;
   protected Integer maxAllowedLockCount;
   protected Integer numPersistThreads;
+  protected Long subTaskTimeoutMs;
 
   public TuningConfigBuilder<C> withTargetPartitionSize(Integer targetPartitionSize)
   {
@@ -269,6 +270,12 @@ public abstract class TuningConfigBuilder<C>
     return this;
   }
 
+  public TuningConfigBuilder<C> withSubTaskTimeoutMs(Long subTaskTimeoutMs)
+  {
+    this.subTaskTimeoutMs = subTaskTimeoutMs;
+    return this;
+  }
+
   public abstract C build();
 
   /**
@@ -325,7 +332,8 @@ public abstract class TuningConfigBuilder<C>
           maxSavedParseExceptions,
           maxColumnsToMerge,
           awaitSegmentAvailabilityTimeoutMillis,
-          numPersistThreads
+          numPersistThreads,
+          subTaskTimeoutMs
       );
     }
   }
@@ -367,7 +375,8 @@ public abstract class TuningConfigBuilder<C>
           maxColumnsToMerge,
           awaitSegmentAvailabilityTimeoutMillis,
           maxAllowedLockCount,
-          numPersistThreads
+          numPersistThreads,
+          subTaskTimeoutMs
       );
     }
   }
@@ -408,7 +417,8 @@ public abstract class TuningConfigBuilder<C>
           maxSavedParseExceptions,
           maxColumnsToMerge,
           awaitSegmentAvailabilityTimeoutMillis,
-          numPersistThreads
+          numPersistThreads,
+          subTaskTimeoutMs
       );
     }
   }

@@ -61,7 +61,8 @@ public class TaskMonitorTest
   private final TaskMonitor<TestTask, SimpleSubTaskReport> monitor = new TaskMonitor<>(
       new TestOverlordClient(),
       3,
-      SPLIT_NUM
+      SPLIT_NUM,
+      0
   );
 
   @Before
