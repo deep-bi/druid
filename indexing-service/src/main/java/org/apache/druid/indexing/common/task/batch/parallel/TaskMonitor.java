@@ -137,13 +137,12 @@ public class TaskMonitor<T extends Task, SubTaskReportType extends SubTaskReport
 
                 final long now = System.currentTimeMillis();
                 final long timeout = taskTimeoutMs;
-                if (timeout > 0 && now - monitorEntry.getStartTime() > timeout) {
-                  log.warn("task[%s] timed out after %,d ms, cancelling...", taskId, now - monitorEntry.getStartTime());
-                  FutureUtils.getUnchecked(
-                          overlordClient.cancelTask(taskId), true
-                  );
-                  final TaskStatusPlus cancelledTaskStatus =
-                          FutureUtils.getUnchecked(overlordClient.taskStatus(taskId), true).getStatus();
+                final long elapsed = now - monitorEntry.getStartTime();
+                if (timeout > 0 && elapsed > timeout) {
+                  log.warn("task[%s] timed out after %s ms, cancelling...", taskId, elapsed);
+                  FutureUtils.getUnchecked(overlordClient.cancelTask(taskId), true);
+                  final TaskStatusPlus cancelledTaskStatus = FutureUtils.getUnchecked(
+                          overlordClient.taskStatus(taskId), true).getStatus();
                   reportsMap.remove(taskId);
                   incrementNumFailedTasks();
 
