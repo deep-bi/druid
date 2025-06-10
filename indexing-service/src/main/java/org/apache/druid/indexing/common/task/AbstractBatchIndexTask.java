@@ -508,7 +508,7 @@ public abstract class AbstractBatchIndexTask extends AbstractTask
   /**
    * Determines the type of lock to use with the given lock granularity.
    */
-  private TaskLockType determineLockType(LockGranularity lockGranularity)
+  public TaskLockType determineLockType(LockGranularity lockGranularity)
   {
     if (lockGranularity == LockGranularity.SEGMENT) {
       return TaskLockType.EXCLUSIVE;

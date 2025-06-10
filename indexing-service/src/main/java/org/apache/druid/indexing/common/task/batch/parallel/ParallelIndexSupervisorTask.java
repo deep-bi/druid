@@ -314,6 +314,13 @@ public class ParallelIndexSupervisorTask extends AbstractBatchIndexTask
     return ingestionSchema;
   }
 
+  @Nullable
+  @JsonIgnore
+  public String getBaseSubtaskSpecName()
+  {
+    return baseSubtaskSpecName;
+  }
+
   @VisibleForTesting
   @Nullable
   ParallelIndexTaskRunner getCurrentRunner()
@@ -355,12 +362,7 @@ public class ParallelIndexSupervisorTask extends AbstractBatchIndexTask
   {
     return new SinglePhaseParallelIndexTaskRunner(
         toolbox,
-        getId(),
-        getGroupId(),
-        baseSubtaskSpecName,
-        ingestionSchema,
-        getContext(),
-        toolbox.getCentralizedTableSchemaConfig()
+        this
     );
   }
 
