@@ -1156,7 +1156,7 @@ name: Netty
 license_category: binary
 module: java-core
 license_name: Apache License version 2.0
-version: 3.10.6.Final
+version: 3.10.6.Final-patch2
 libraries:
   - io.netty: netty
 notices:
@@ -1284,7 +1284,7 @@ name: Netty
 license_category: binary
 module: java-core
 license_name: Apache License version 2.0
-version: 4.1.118.Final
+version: 4.1.122.Final
 libraries:
   - io.netty: netty-buffer
   - io.netty: netty-codec
@@ -1716,7 +1716,7 @@ name: Apache Derby
 license_category: binary
 module: java-core
 license_name: Apache License version 2.0
-version: 10.14.2.0
+version: 10.14.2.1
 libraries:
   - org.apache.derby: derby
   - org.apache.derby: derbyclient
