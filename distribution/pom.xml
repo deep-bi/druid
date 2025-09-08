@@ -30,7 +30,7 @@
     <parent>
         <artifactId>druid</artifactId>
         <groupId>org.apache.druid</groupId>
-        <version>33.0.0</version>
+        <version>33.0.0-deepbi1</version>
     </parent>
 
     <dependencies>
