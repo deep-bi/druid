@@ -11,8 +11,8 @@ jobs:
     steps:
       - name: Release Branch Name Validation
         run: |
-          if [[ ! "$GITHUB_REF" =~ ^refs/heads/release/.*$ ]]; then
-          echo "Release workflow only valid for release branches"
+          if [[ ! "$GITHUB_REF" =~ ^refs/heads/deep/.*$ ]]; then
+          echo "Release workflow only valid for deep/x branches"
           exit 1
           fi
 
