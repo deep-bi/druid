@@ -23,9 +23,13 @@ import com.fasterxml.jackson.databind.Module;
 import com.fasterxml.jackson.databind.module.SimpleModule;
 import com.google.common.collect.ImmutableList;
 import com.google.inject.Binder;
+import com.google.inject.Injector;
+import com.google.inject.Provides;
 import org.apache.druid.guice.Jerseys;
 import org.apache.druid.guice.JsonConfigProvider;
 import org.apache.druid.initialization.DruidModule;
+import org.apache.http.client.HttpClient;
+import org.apache.http.impl.client.HttpClients;
 
 import java.util.List;
 
@@ -37,7 +41,9 @@ public class Pac4jDruidModule implements DruidModule
     return ImmutableList.of(
         new SimpleModule("Pac4jDruidSecurity").registerSubtypes(
             Pac4jAuthenticator.class,
-            JwtAuthenticator.class
+            JwtAuthenticator.class,
+            Pac4jAuthorizer.class,
+            BasicSecurityPermissionsCollector.class
         )
     );
   }
@@ -48,6 +54,14 @@ public class Pac4jDruidModule implements DruidModule
     JsonConfigProvider.bind(binder, "druid.auth.pac4j", Pac4jCommonConfig.class);
     JsonConfigProvider.bind(binder, "druid.auth.pac4j.oidc", OIDCConfig.class);
 
+    binder.bind(PermissionsCollector.class).to(BasicSecurityPermissionsCollector.class);
+
     Jerseys.addResource(binder, Pac4jCallbackResource.class);
+  }
+
+  @Provides
+  static HttpClient createHttpClient(final Injector injector)
+  {
+    return HttpClients.createDefault();
   }
 }
