@@ -35,6 +35,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
 public class BasicSecurityPermissionsCollector implements PermissionsCollector
@@ -99,6 +100,7 @@ public class BasicSecurityPermissionsCollector implements PermissionsCollector
   private Collection<String> fetchRolesForGroup(String group) throws Exception
   {
     final String url = String.format(
+        Locale.ROOT,
         "%s/proxy/coordinator/druid-ext/basic-security/authorization/db/basic/groupMappings/%s",
         oidcConfig.getDruidBaseUrl(),
         group
@@ -139,6 +141,7 @@ public class BasicSecurityPermissionsCollector implements PermissionsCollector
       throws Exception
   {
     final String url = String.format(
+        Locale.ROOT,
         "%s/proxy/coordinator/druid-ext/basic-security/authorization/db/basic/roles/%s?full",
         oidcConfig.getDruidBaseUrl(),
         role
