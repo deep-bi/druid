@@ -22,7 +22,6 @@ package org.apache.druid.security.pac4j;
 import com.fasterxml.jackson.annotation.JacksonInject;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonTypeName;
-import net.minidev.json.JSONArray;
 import org.apache.druid.server.security.Access;
 import org.apache.druid.server.security.Action;
 import org.apache.druid.server.security.AuthenticationResult;
@@ -46,6 +45,8 @@ public class Pac4jAuthorizer implements Authorizer
 
   private final OIDCConfig oidcConfig;
   private final PermissionsCollector permissionsCollector;
+  private static final Pattern SPLIT_PATTERN = Pattern.compile("[,;\\s]+");
+
 
   @JsonCreator
   public Pac4jAuthorizer(
@@ -75,7 +76,7 @@ public class Pac4jAuthorizer implements Authorizer
       return allow();
     }
 
-    Object groupClaim = authenticationContext.get(oidcConfig.getOidcClaim());
+    Object groupClaim = authenticationContext.get(groupClaimName);
 
     if (groupClaim == null) {
       return deny("Authentication context has no group claims, denying access");
@@ -125,69 +126,46 @@ public class Pac4jAuthorizer implements Authorizer
       return out;
     }
 
-    if (value instanceof JSONArray) {
-      final JSONArray arr = (JSONArray) value;
-      for (Object o : arr) {
-        if (o != null) {
-          final String s = o.toString().trim();
-          if (!s.isEmpty()) {
-            out.add(s);
-          }
-        }
-      }
-      return out;
-    }
-
     if (value instanceof Collection) {
-      final Collection<?> c = (Collection<?>) value;
-      for (Object o : c) {
-        if (o != null) {
-          final String s = o.toString().trim();
-          if (!s.isEmpty()) {
-            out.add(s);
-          }
-        }
+      for (Object element : (Collection<?>) value) {
+        addIfNonBlank(out, element);
       }
       return out;
     }
 
     if (value.getClass().isArray()) {
-      final int n = Array.getLength(value);
-      for (int i = 0; i < n; i++) {
-        final Object o = Array.get(value, i);
-        if (o != null) {
-          final String s = o.toString().trim();
-          if (!s.isEmpty()) {
-            out.add(s);
-          }
-        }
+      final int length = Array.getLength(value);
+      for (int i = 0; i < length; i++) {
+        addIfNonBlank(out, Array.get(value, i));
       }
       return out;
     }
 
     final String s = value.toString().trim();
     if (!s.isEmpty()) {
-      final String[] parts = s.split("[,;\\s]+");
+      final String[] parts = SPLIT_PATTERN.split(s);
       for (String part : parts) {
-        final String p = part.trim();
-        if (!p.isEmpty()) {
-          out.add(p);
-        }
+        addIfNonBlank(out, part);
       }
     }
 
     return out;
   }
 
+  private static void addIfNonBlank(Set<String> target, Object candidate)
+  {
+    if (candidate == null) {
+      return;
+    }
+    final String s = candidate.toString().trim();
+    if (!s.isEmpty()) {
+      target.add(s);
+    }
+  }
+
   private boolean permissionCheck(Resource resource, Action action, PermissionDto permission)
   {
-    if (permission == null) {
-      return false;
-    }
-    if (resource == null) {
-      return false;
-    }
-    if (action == null) {
+    if (permission == null || resource == null || action == null) {
       return false;
     }
 
@@ -196,7 +174,7 @@ public class Pac4jAuthorizer implements Authorizer
       return false;
     }
 
-    if (ra.getAction() != action) {
+    if (!Objects.equals(ra.getAction(), action)) {
       return false;
     }
 

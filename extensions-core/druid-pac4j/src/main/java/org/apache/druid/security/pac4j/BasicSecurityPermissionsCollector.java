@@ -34,7 +34,6 @@ import java.util.Base64;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 
@@ -44,7 +43,7 @@ public class BasicSecurityPermissionsCollector implements PermissionsCollector
   private final ObjectMapper mapper;
   private final OIDCConfig oidcConfig;
   private final String authHeader;
-  private static final Logger logger = new Logger(BasicSecurityPermissionsCollector.class);
+  private static final Logger LOG = new Logger(BasicSecurityPermissionsCollector.class);
 
   @Inject
   public BasicSecurityPermissionsCollector(
@@ -65,14 +64,14 @@ public class BasicSecurityPermissionsCollector implements PermissionsCollector
   @Override
   public List<PermissionDto> collect(Set<String> groups)
   {
-    logger.debug("Getting permissions for groups %s", groups);
+    LOG.debug("Getting permissions for groups %s", groups);
     if (groups == null || groups.isEmpty()) {
       return Collections.emptyList();
     }
     try {
       Set<String> roles = new HashSet<>();
       for (String group : groups) {
-        if (group == null || group.trim().isEmpty()) {
+        if (isBlank(group)) {
           continue;
         }
         roles.addAll(fetchRolesForGroup(group));
@@ -83,7 +82,7 @@ public class BasicSecurityPermissionsCollector implements PermissionsCollector
 
       List<PermissionDto> out = new ArrayList<>();
       for (String role : roles) {
-        if (role == null || role.trim().isEmpty()) {
+        if (isBlank(role)) {
           continue;
         }
         out.addAll(fetchPermissionsForRole(role));
@@ -91,7 +90,7 @@ public class BasicSecurityPermissionsCollector implements PermissionsCollector
       return out;
     }
     catch (Exception e) {
-      logger.error(e, "Permission collection failed");
+      LOG.error(e, "Permission collection failed");
       return Collections.emptyList();
     }
   }
@@ -99,8 +98,11 @@ public class BasicSecurityPermissionsCollector implements PermissionsCollector
 
   private Collection<String> fetchRolesForGroup(String group) throws Exception
   {
-    String url = oidcConfig.getDruidBaseUrl()
-                 + "/proxy/coordinator/druid-ext/basic-security/authorization/db/basic/groupMappings/" + group;
+    final String url = String.format(
+        "%s/proxy/coordinator/druid-ext/basic-security/authorization/db/basic/groupMappings/%s",
+        oidcConfig.getDruidBaseUrl(),
+        group
+    );
 
     HttpGet req = new HttpGet(url);
     req.setHeader("Authorization", authHeader);
@@ -109,23 +111,21 @@ public class BasicSecurityPermissionsCollector implements PermissionsCollector
     ResponseHandler<Collection<String>> rh = resp -> {
       int code = resp.getStatusLine().getStatusCode();
       if (code != 200) {
-        logger.warn("Non-200 response [%d] from basic security group mapping API for group %s", code, group);
+        LOG.warn("Non-200 response [%d] from basic security group mapping API for group %s", code, group);
         return Collections.emptyList();
       }
       JsonNode root = mapper.readTree(resp.getEntity().getContent());
       JsonNode roles = root.get("roles");
       if (roles == null || !roles.isArray()) {
-        logger.warn("No roles array in response from basic security group mapping API for group %s", group);
+        LOG.warn("No roles array in response from basic security group mapping API for group %s", group);
         return Collections.emptyList();
       }
       List<String> out = new ArrayList<>();
-      Iterator<JsonNode> it = roles.elements();
-      while (it.hasNext()) {
-        JsonNode n = it.next();
+      for (JsonNode n : roles) {
         if (n != null) {
-          String s = n.asText(null);
-          if (s != null && !s.trim().isEmpty()) {
-            out.add(s.trim());
+          final String role = n.asText(null);
+          if (!isBlank(role)) {
+            out.add(role.trim());
           }
         }
       }
@@ -138,8 +138,11 @@ public class BasicSecurityPermissionsCollector implements PermissionsCollector
   private Collection<PermissionDto> fetchPermissionsForRole(String role)
       throws Exception
   {
-    String url = oidcConfig.getDruidBaseUrl()
-                 + "/proxy/coordinator/druid-ext/basic-security/authorization/db/basic/roles/" + role + "?full";
+    final String url = String.format(
+        "%s/proxy/coordinator/druid-ext/basic-security/authorization/db/basic/roles/%s?full",
+        oidcConfig.getDruidBaseUrl(),
+        role
+    );
 
     HttpGet req = new HttpGet(url);
     req.setHeader("Authorization", authHeader);
@@ -148,23 +151,21 @@ public class BasicSecurityPermissionsCollector implements PermissionsCollector
     ResponseHandler<Collection<PermissionDto>> rh = resp -> {
       int code = resp.getStatusLine().getStatusCode();
       if (code != 200) {
-        logger.warn("Non-200 response [%d] from basic security roles API for role %s", code, role);
+        LOG.warn("Non-200 response [%d] from basic security roles API for role %s", code, role);
         return Collections.emptyList();
       }
       JsonNode root = mapper.readTree(resp.getEntity().getContent());
       JsonNode perms = root.get("permissions");
       if (perms == null || !perms.isArray()) {
-        logger.warn("No permissions array in response from basic security roles API for role %s", role);
+        LOG.warn("No permissions array in response from basic security roles API for role %s", role);
         return Collections.emptyList();
       }
       List<PermissionDto> out = new ArrayList<>();
-      Iterator<JsonNode> it = perms.elements();
-      while (it.hasNext()) {
-        JsonNode p = it.next();
+      for (JsonNode p : perms) {
         if (p != null && p.isObject()) {
-          PermissionDto bp = mapper.treeToValue(p, PermissionDto.class);
-          if (bp != null) {
-            out.add(bp);
+          final PermissionDto dto = mapper.treeToValue(p, PermissionDto.class);
+          if (dto != null) {
+            out.add(dto);
           }
         }
       }
@@ -172,5 +173,10 @@ public class BasicSecurityPermissionsCollector implements PermissionsCollector
     };
 
     return httpClient.execute(req, rh);
+  }
+
+  private static boolean isBlank(String s)
+  {
+    return s == null || s.trim().isEmpty();
   }
 }
