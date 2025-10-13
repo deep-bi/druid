@@ -39,8 +39,6 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.text.ParseException;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.Optional;
 
 public class JwtAuthFilter implements Filter
@@ -85,19 +83,15 @@ public class JwtAuthFilter implements Filter
         // Parses the JWT and performs the ID Token validation specified in the OpenID spec: https://openid.net/specs/openid-connect-core-1_0.html#IDTokenValidation
         IDTokenClaimsSet claims = tokenValidator.validate(JWTParser.parse(idToken.get()), null);
         if (claims != null) {
-          Optional<String> claim = Optional.ofNullable(claims.getStringClaim(oidcConfig.getIdClaim()));
+          Optional<String> claim = Optional.ofNullable(claims.getStringClaim(oidcConfig.getOidcClaim()));
 
           if (claim.isPresent()) {
             LOG.debug("Authentication successful for " + oidcConfig.getClientID());
-
-            Map<String, Object> attributes = getGroupClaimAttributes(claims);
-            LOG.debug("JWT attributes [%s]", attributes);
-
             AuthenticationResult authenticationResult = new AuthenticationResult(
                 claim.get(),
                 authorizerName,
                 name,
-                attributes
+                null
             );
             servletRequest.setAttribute(AuthConfig.DRUID_AUTHENTICATION_RESULT, authenticationResult);
           } else {
@@ -120,23 +114,6 @@ public class JwtAuthFilter implements Filter
   public void destroy()
   {
 
-  }
-
-  private Map<String, Object> getGroupClaimAttributes(IDTokenClaimsSet claims)
-  {
-    Map<String, Object> attributes = new HashMap<>();
-    String claimName = oidcConfig.getOidcClaim();
-    if (claimName != null && !claimName.isEmpty()) {
-      Object groupClaim = claims.getClaim(claimName);
-
-      if (groupClaim != null) {
-        attributes.put(
-            claimName,
-            groupClaim
-        );
-      }
-    }
-    return attributes;
   }
 
   private static Optional<String> extractBearerToken(HttpServletRequest request)

@@ -52,6 +52,7 @@ public class Pac4jAuthenticator implements Authenticator
   private final Supplier<Config> pac4jConfigSupplier;
   private final Pac4jCommonConfig pac4jCommonConfig;
   private final SSLSocketFactory sslSocketFactory;
+  private final String oidcClaim;
 
   @JsonCreator
   public Pac4jAuthenticator(
@@ -73,6 +74,7 @@ public class Pac4jAuthenticator implements Authenticator
     }
 
     this.pac4jConfigSupplier = Suppliers.memoize(() -> createPac4jConfig(oidcConfig));
+    this.oidcClaim = oidcConfig.getOidcClaim();
   }
 
   @Override
@@ -82,7 +84,8 @@ public class Pac4jAuthenticator implements Authenticator
         name,
         authorizerName,
         pac4jConfigSupplier.get(),
-        pac4jCommonConfig.getCookiePassphrase().getPassword()
+        pac4jCommonConfig.getCookiePassphrase().getPassword(),
+        oidcClaim
     );
   }
 

@@ -42,19 +42,7 @@ public class OIDCConfig
   private final String oidcClaim;
 
   @JsonProperty
-  private final String idClaim;
-
-  @JsonProperty
   private final String scope;
-
-  @JsonProperty
-  private final String druidBaseUrl;
-
-  @JsonProperty
-  private final String druidUsername;
-
-  @JsonProperty
-  private final PasswordProvider druidPassword;
 
   @JsonCreator
   public OIDCConfig(
@@ -62,22 +50,14 @@ public class OIDCConfig
       @JsonProperty("clientSecret") PasswordProvider clientSecret,
       @JsonProperty("discoveryURI") String discoveryURI,
       @JsonProperty("oidcClaim") String oidcClaim,
-      @JsonProperty("idClaim") String idClaim,
-      @JsonProperty("scope") @Nullable String scope,
-      @JsonProperty("druidBaseUrl") String druidBaseUrl,
-      @JsonProperty("druidUsername") String druidUsername,
-      @JsonProperty("druidPassword") PasswordProvider druidPassword
+      @JsonProperty("scope") @Nullable String scope
   )
   {
     this.clientID = Preconditions.checkNotNull(clientID, "null clientID");
     this.clientSecret = Preconditions.checkNotNull(clientSecret, "null clientSecret");
     this.discoveryURI = Preconditions.checkNotNull(discoveryURI, "null discoveryURI");
     this.oidcClaim = oidcClaim == null ? DEFAULT_SCOPE : oidcClaim;
-    this.idClaim = idClaim == null ? "sub" : idClaim;
     this.scope = scope;
-    this.druidBaseUrl = druidBaseUrl;
-    this.druidUsername = druidUsername;
-    this.druidPassword = druidPassword;
   }
 
   @JsonProperty
@@ -102,30 +82,6 @@ public class OIDCConfig
   public String getOidcClaim()
   {
     return oidcClaim;
-  }
-
-  @JsonProperty
-  public String getIdClaim()
-  {
-    return idClaim;
-  }
-
-  @JsonProperty
-  public String getDruidBaseUrl()
-  {
-    return druidBaseUrl;
-  }
-
-  @JsonProperty
-  public String getDruidUsername()
-  {
-    return druidUsername;
-  }
-
-  @JsonProperty
-  public PasswordProvider getDruidPassword()
-  {
-    return druidPassword;
   }
 
   @JsonProperty
