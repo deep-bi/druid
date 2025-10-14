@@ -43,13 +43,13 @@ public class StubCacheManager implements BasicAuthorizerCacheManager
   @Override
   public void handleAuthorizerUserUpdate(String authorizerPrefix, byte[] serializedUserAndRoleMap)
   {
-
+    // No-op
   }
 
   @Override
   public void handleAuthorizerGroupMappingUpdate(String authorizerPrefix, byte[] serializedGroupMappingAndRoleMap)
   {
-
+    // No-op
   }
 
   @Override
