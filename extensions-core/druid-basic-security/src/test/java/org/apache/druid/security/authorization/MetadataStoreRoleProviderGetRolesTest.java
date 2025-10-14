@@ -45,41 +45,33 @@ public class MetadataStoreRoleProviderGetRolesTest
     roles.put("admin", null);
     roles.put("viewer", null);
 
-    Set<String> viewerRole = new HashSet<>();
-    viewerRole.add("viewer");
+    Set<String> viewerRole = Set.of("viewer");
 
     BasicAuthorizerUser user = new BasicAuthorizerUser("alice", viewerRole);
 
-    Map<String, BasicAuthorizerUser> users = new HashMap<>();
-    users.put("alice", user);
+    Map<String, BasicAuthorizerUser> users = Map.of("alice", user);
 
     BasicAuthorizerCacheManager cache = new StubCacheManager(users, roles);
     MetadataStoreRoleProvider provider = new MetadataStoreRoleProvider(cache);
 
-    Set<String> claims = new HashSet<>();
-    claims.add("admin");
-    claims.add("extraneous");
+    Set<String> claims = Set.of("admin", "extraneous");
 
-    Map<String, Object> ctx = new HashMap<>();
-    ctx.put(RoleProviderUtil.ROLE_CLAIM_CONTEXT_KEY, claims);
+    Map<String, Object> ctx = Map.of(RoleProviderUtil.ROLE_CLAIM_CONTEXT_KEY, claims);
 
     AuthenticationResult ar = new AuthenticationResult("alice", "basic", "pac4j", ctx);
 
     Set<String> out = provider.getRoles("basic", ar);
-    HashSet<String> expected = new HashSet<>();
-    expected.add("admin");
+    Set<String> expected = Set.of("admin");
     assertEquals(expected, out);
   }
 
   @Test
   public void fallsBackToIdentityWhenNoClaimContext()
   {
-    Set<String> viewerRole = new HashSet<>();
-    viewerRole.add("viewer");
+    Set<String> viewerRole = Set.of("viewer");
     BasicAuthorizerUser user = new BasicAuthorizerUser("alice", viewerRole);
 
-    Map<String, BasicAuthorizerUser> users = new HashMap<>();
-    users.put("alice", user);
+    Map<String, BasicAuthorizerUser> users = Map.of("alice", user);
 
     Map<String, BasicAuthorizerRole> roles = new HashMap<>();
     roles.put("admin", null);
@@ -90,8 +82,7 @@ public class MetadataStoreRoleProviderGetRolesTest
     AuthenticationResult ar = new AuthenticationResult("alice", "basic", "pac4j", Collections.emptyMap());
 
     Set<String> out = provider.getRoles("basic", ar);
-    HashSet<String> expected = new HashSet<>();
-    expected.add("viewer");
+    Set<String> expected = Set.of("viewer");
     assertEquals(expected, out);
   }
 }
