@@ -41,7 +41,6 @@ import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.util.Arrays;
-import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
@@ -142,7 +141,7 @@ public class Pac4jFilterClaimsTest
     assertTrue(ar.getContext().containsKey("profile"));
     Set<String> claimValues = (Set<String>) ar.getContext().get("oidcClaim");
     assertNotNull(claimValues);
-    assertEquals(new HashSet<>(Arrays.asList("admin", "dev")), claimValues);
+    assertEquals(Set.of("admin", "dev"), claimValues);
   }
 
   @Test
@@ -199,7 +198,7 @@ public class Pac4jFilterClaimsTest
 
     AuthenticationResult ar = (AuthenticationResult) authResCaptor.getValue();
     Set<String> claimValues = (Set<String>) ar.getContext().get("oidcClaim");
-    assertEquals(new HashSet<>(Arrays.asList("ops", "auditor")), claimValues);
+    assertEquals(Set.of("ops", "auditor"), claimValues);
   }
 
   @Test

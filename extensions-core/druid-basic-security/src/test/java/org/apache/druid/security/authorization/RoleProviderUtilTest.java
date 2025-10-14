@@ -25,8 +25,6 @@ import org.apache.druid.security.basic.authorization.entity.BasicAuthorizerRole;
 import org.apache.druid.security.basic.authorization.entity.BasicAuthorizerUser;
 import org.junit.Test;
 
-import java.util.Arrays;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -42,11 +40,10 @@ public class RoleProviderUtilTest
   @Test
   public void getRolesByIdentityAddsRolesWhenUserFound()
   {
-    Set<String> roles = new HashSet<>(Arrays.asList("r1", "r2"));
+    Set<String> roles = Set.of("r1", "r2");
     BasicAuthorizerUser user = new BasicAuthorizerUser("id", roles);
 
-    Map<String, BasicAuthorizerUser> userMap = new HashMap<>();
-    userMap.put("id", user);
+    Map<String, BasicAuthorizerUser> userMap = Map.of("id", user);
 
     Set<String> out = RoleProviderUtil.getRolesByIdentity(userMap, "id", new HashSet<>());
     assertEquals(roles, out);
@@ -55,7 +52,7 @@ public class RoleProviderUtilTest
   @Test
   public void getRolesByIdentityNoopWhenUserMissing()
   {
-    Map<String, BasicAuthorizerUser> userMap = new HashMap<>();
+    Map<String, BasicAuthorizerUser> userMap = Map.of();
     Set<String> out = RoleProviderUtil.getRolesByIdentity(userMap, "missing", new HashSet<>());
     assertTrue(out.isEmpty());
   }
@@ -67,18 +64,18 @@ public class RoleProviderUtilTest
     roles.put("r1", null);
     roles.put("r2", null);
 
-    BasicAuthorizerCacheManager cache = new StubCacheManager(Collections.emptyMap(), roles);
+    BasicAuthorizerCacheManager cache = new StubCacheManager(Map.of(), roles);
 
-    Set<String> claims = new HashSet<>(Arrays.asList("r2", "nope"));
+    Set<String> claims = Set.of("r2", "nope");
     Set<String> out = RoleProviderUtil.getRolesByClaimValue("authz", claims, new HashSet<>(), cache);
-    assertEquals(new HashSet<>(Collections.singletonList("r2")), out);
+    assertEquals(Set.of("r2"), out);
   }
 
   @Test
   public void getRolesByClaimValuesThrowsWhenRoleMapNull()
   {
-    BasicAuthorizerCacheManager cache = new StubCacheManager(Collections.emptyMap(), null);
-    assertTrue(RoleProviderUtil.getRolesByClaimValue("authz", new HashSet<>(Collections.singletonList("r2")),
+    BasicAuthorizerCacheManager cache = new StubCacheManager(Map.of(), null);
+    assertTrue(RoleProviderUtil.getRolesByClaimValue("authz", Set.of("r2"),
                                                      new HashSet<>(), cache
     ).isEmpty());
   }
