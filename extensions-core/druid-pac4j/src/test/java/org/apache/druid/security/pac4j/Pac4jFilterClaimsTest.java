@@ -40,7 +40,6 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.lang.reflect.Field;
-import java.util.Arrays;
 import java.util.Map;
 import java.util.Set;
 
@@ -88,8 +87,7 @@ public class Pac4jFilterClaimsTest
         "testPac4j",
         "basic",
         pac4jConfig,
-        "whatever",
-        "groups"
+        "whatever"
     );
     setField(filter, "sessionStore", sessionStore);
     setField(filter, "securityLogic", securityLogic);
@@ -115,7 +113,7 @@ public class Pac4jFilterClaimsTest
   public void setsClaimContextWhenPresent() throws IOException, ServletException
   {
     when(profile.getId()).thenReturn("user1");
-    when(profile.getAttribute("groups")).thenReturn(Arrays.asList("admin", "dev", "", "admin"));
+    when(profile.getRoles()).thenReturn(Set.of("admin", "dev"));
     when(securityLogic.perform(
         any(JEEContext.class),
         eq(pac4jConfig),
@@ -139,7 +137,7 @@ public class Pac4jFilterClaimsTest
     assertEquals("user1", ar.getIdentity());
     assertNotNull(ar.getContext());
     assertTrue(ar.getContext().containsKey("profile"));
-    Set<String> claimValues = (Set<String>) ar.getContext().get("oidcClaim");
+    Set<String> claimValues = (Set<String>) ar.getContext().get("druidRoles");
     assertNotNull(claimValues);
     assertEquals(Set.of("admin", "dev"), claimValues);
   }
@@ -148,7 +146,7 @@ public class Pac4jFilterClaimsTest
   public void fallsBackToIdentityWhenNoClaim() throws IOException, ServletException
   {
     when(profile.getId()).thenReturn("user2");
-    when(profile.getAttribute("groups")).thenReturn(null);
+    when(profile.getRoles()).thenReturn(null);
     when(securityLogic.perform(
         any(JEEContext.class),
         eq(pac4jConfig),
@@ -171,34 +169,6 @@ public class Pac4jFilterClaimsTest
     assertNotNull(ar.getContext());
     assertFalse(ar.getContext().containsKey("oidcClaim"));
     verify(chain, times(1)).doFilter(req, resp);
-  }
-
-  @Test
-  public void normalizesArrayClaim() throws IOException, ServletException
-  {
-    when(profile.getId()).thenReturn("user3");
-    when(profile.getAttribute("groups")).thenReturn(new String[]{"ops", " ", "ops", "auditor"});
-    when(securityLogic.perform(
-        any(JEEContext.class),
-        eq(pac4jConfig),
-        any(),
-        any(),
-        isNull(),
-        eq("none"),
-        isNull(),
-        isNull()
-    ))
-        .thenReturn(profile);
-
-    ArgumentCaptor<Object> authResCaptor = ArgumentCaptor.forClass(Object.class);
-
-    filter.doFilter(req, resp, chain);
-
-    verify(req).setAttribute(eq(AuthConfig.DRUID_AUTHENTICATION_RESULT), authResCaptor.capture());
-
-    AuthenticationResult ar = (AuthenticationResult) authResCaptor.getValue();
-    Set<String> claimValues = (Set<String>) ar.getContext().get("oidcClaim");
-    assertEquals(Set.of("ops", "auditor"), claimValues);
   }
 
   @Test

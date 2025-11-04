@@ -52,7 +52,7 @@ public class Pac4jAuthenticator implements Authenticator
   private final Supplier<Config> pac4jConfigSupplier;
   private final Pac4jCommonConfig pac4jCommonConfig;
   private final SSLSocketFactory sslSocketFactory;
-  private final String oidcClaim;
+  private final String roleClaimPath;
 
   @JsonCreator
   public Pac4jAuthenticator(
@@ -74,7 +74,7 @@ public class Pac4jAuthenticator implements Authenticator
     }
 
     this.pac4jConfigSupplier = Suppliers.memoize(() -> createPac4jConfig(oidcConfig));
-    this.oidcClaim = oidcConfig.getOidcClaim();
+    this.roleClaimPath = oidcConfig.getRoleClaimPath();
   }
 
   @Override
@@ -84,8 +84,7 @@ public class Pac4jAuthenticator implements Authenticator
         name,
         authorizerName,
         pac4jConfigSupplier.get(),
-        pac4jCommonConfig.getCookiePassphrase().getPassword(),
-        oidcClaim
+        pac4jCommonConfig.getCookiePassphrase().getPassword()
     );
   }
 
@@ -146,6 +145,9 @@ public class Pac4jAuthenticator implements Authenticator
     OidcClient oidcClient = new OidcClient(oidcConf);
     oidcClient.setUrlResolver(new DefaultUrlResolver(true));
     oidcClient.setCallbackUrlResolver(new NoParameterCallbackUrlResolver());
+    if (roleClaimPath != null && !roleClaimPath.isBlank()) {
+      oidcClient.addAuthorizationGenerator(new RoleBasedAuthGen(roleClaimPath));
+    }
 
     // This is used by OidcClient in various places to make HTTPrequests.
     if (sslSocketFactory != null) {

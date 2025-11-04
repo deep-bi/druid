@@ -42,13 +42,8 @@ import javax.servlet.ServletResponse;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import java.lang.reflect.Array;
 import java.util.Collection;
-import java.util.Objects;
 import java.util.Set;
-import java.util.stream.Collectors;
-import java.util.stream.IntStream;
-import java.util.stream.Stream;
 
 public class Pac4jFilter implements Filter
 {
@@ -61,9 +56,13 @@ public class Pac4jFilter implements Filter
 
   private final String name;
   private final String authorizerName;
-  private final String oidcClaim;
 
-  public Pac4jFilter(String name, String authorizerName, Config pac4jConfig, String cookiePassphrase, String oidcClaim)
+  public Pac4jFilter(
+      String name,
+      String authorizerName,
+      Config pac4jConfig,
+      String cookiePassphrase
+  )
   {
     this.pac4jConfig = pac4jConfig;
     this.securityLogic = new DefaultSecurityLogic<>();
@@ -73,7 +72,6 @@ public class Pac4jFilter implements Filter
     this.authorizerName = authorizerName;
 
     this.sessionStore = new Pac4jSessionStore<>(cookiePassphrase);
-    this.oidcClaim = oidcClaim;
   }
 
   @Override
@@ -103,7 +101,8 @@ public class Pac4jFilter implements Filter
           pac4jConfig,
           JEEHttpActionAdapter.INSTANCE,
           "/",
-          true, false, false, null);
+          true, false, false, null
+      );
     } else {
       UserProfile profile = (UserProfile) securityLogic.perform(
           context,
@@ -123,18 +122,14 @@ public class Pac4jFilter implements Filter
       // In the older version, if it is null, it simply grant access and returns authorized.
       // But in the newer pac4j version, it uses CsrfAuthorizer as default, And because of this, It was returning 403 in API calls.
       if (profile != null && profile.getId() != null) {
-        Object rawClaim = profile.getAttribute(oidcClaim);
-        final Set<String> claimValues = normalizeClaimValues(rawClaim);
+        final Set<String> roles = profile.getRoles();
         String identity = profile.getId();
-        LOGGER.debug(
-            "Using fixed identity [%s] with claim [%s], claim values %s",
-            identity, oidcClaim, claimValues
-        );
+        LOGGER.debug("Collected identity: %s with roles: %s", identity, roles);
 
         final ImmutableMap.Builder<String, Object> ctx = ImmutableMap.builder();
         ctx.put("profile", profile);
-        if (!claimValues.isEmpty()) {
-          ctx.put("oidcClaim", claimValues);
+        if (roles != null && !roles.isEmpty()) {
+          ctx.put("druidRoles", roles);
         }
         AuthenticationResult authenticationResult = new AuthenticationResult(
             identity,
@@ -146,29 +141,6 @@ public class Pac4jFilter implements Filter
         filterChain.doFilter(servletRequest, servletResponse);
       }
     }
-  }
-
-  private static Set<String> normalizeClaimValues(Object claim)
-  {
-    if (claim == null) {
-      return Set.of();
-    }
-
-    Stream<?> stream;
-    if (claim instanceof Collection<?>) {
-      stream = ((Collection<?>) claim).stream();
-    } else if (claim.getClass().isArray()) {
-      int len = Array.getLength(claim);
-      stream = IntStream.range(0, len).mapToObj(i -> Array.get(claim, i));
-    } else {
-      stream = Stream.of(claim);
-    }
-
-    return stream
-        .filter(Objects::nonNull)
-        .map(o -> o.toString().trim())
-        .filter(s -> !s.isEmpty())
-        .collect(Collectors.toSet());
   }
 
   @Override

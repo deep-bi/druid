@@ -30,7 +30,7 @@ import java.util.Set;
 
 public class RoleProviderUtil
 {
-  public static final String ROLE_CLAIM_CONTEXT_KEY = "oidcClaim";
+  public static final String ROLE_CLAIM_CONTEXT_KEY = "druidRoles";
 
   public static Set<String> getRolesByIdentity(
       Map<String, BasicAuthorizerUser> userMap,
