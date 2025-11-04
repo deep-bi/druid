@@ -43,6 +43,7 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.Collection;
+import java.util.Set;
 
 public class Pac4jFilter implements Filter
 {
@@ -56,7 +57,12 @@ public class Pac4jFilter implements Filter
   private final String name;
   private final String authorizerName;
 
-  public Pac4jFilter(String name, String authorizerName, Config pac4jConfig, String cookiePassphrase)
+  public Pac4jFilter(
+      String name,
+      String authorizerName,
+      Config pac4jConfig,
+      String cookiePassphrase
+  )
   {
     this.pac4jConfig = pac4jConfig;
     this.securityLogic = new DefaultSecurityLogic<>();
@@ -95,7 +101,8 @@ public class Pac4jFilter implements Filter
           pac4jConfig,
           JEEHttpActionAdapter.INSTANCE,
           "/",
-          true, false, false, null);
+          true, false, false, null
+      );
     } else {
       UserProfile profile = (UserProfile) securityLogic.perform(
           context,
@@ -109,12 +116,27 @@ public class Pac4jFilter implements Filter
             }
           },
           JEEHttpActionAdapter.INSTANCE,
-          null, "none", null, null);
+          null, "none", null, null
+      );
       // Changed the Authorizer from null to "none".
       // In the older version, if it is null, it simply grant access and returns authorized.
       // But in the newer pac4j version, it uses CsrfAuthorizer as default, And because of this, It was returning 403 in API calls.
       if (profile != null && profile.getId() != null) {
-        AuthenticationResult authenticationResult = new AuthenticationResult(profile.getId(), authorizerName, name, ImmutableMap.of("profile", profile));
+        final Set<String> roles = profile.getRoles();
+        String identity = profile.getId();
+        LOGGER.debug("Collected identity: %s with roles: %s", identity, roles);
+
+        final ImmutableMap.Builder<String, Object> ctx = ImmutableMap.builder();
+        ctx.put("profile", profile);
+        if (roles != null && !roles.isEmpty()) {
+          ctx.put("druidRoles", roles);
+        }
+        AuthenticationResult authenticationResult = new AuthenticationResult(
+            identity,
+            authorizerName,
+            name,
+            ctx.build()
+        );
         servletRequest.setAttribute(AuthConfig.DRUID_AUTHENTICATION_RESULT, authenticationResult);
         filterChain.doFilter(servletRequest, servletResponse);
       }
