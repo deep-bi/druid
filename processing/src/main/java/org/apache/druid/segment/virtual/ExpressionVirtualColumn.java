@@ -65,7 +65,7 @@ public class ExpressionVirtualColumn implements VirtualColumn
   private final ColumnType outputType;
   private final Supplier<Expr> parsedExpression;
   private final Supplier<byte[]> cacheKey;
-  private final boolean calculateBitmapIndex;
+  private final boolean enableBitmapIndexes;
 
   @JsonCreator
   public ExpressionVirtualColumn(
@@ -73,10 +73,10 @@ public class ExpressionVirtualColumn implements VirtualColumn
       @JsonProperty("expression") String expression,
       @JsonProperty("outputType") @Nullable ColumnType outputType,
       @JacksonInject ExprMacroTable macroTable,
-      @JsonProperty("calculateBitmapIndex") @Nullable Boolean calculateBitmapIndex
+      @JsonProperty("calculateBitmapIndex") @Nullable Boolean enableBitmapIndexes
   )
   {
-    this(name, expression, outputType, Parser.lazyParse(expression, macroTable), calculateBitmapIndex != null ? calculateBitmapIndex : true);
+    this(name, expression, outputType, Parser.lazyParse(expression, macroTable), enableBitmapIndexes == null || enableBitmapIndexes);
   }
 
   public ExpressionVirtualColumn(
@@ -110,10 +110,10 @@ public class ExpressionVirtualColumn implements VirtualColumn
       final String expression,
       final Expr parsedExpression,
       @Nullable final ColumnType outputType,
-      final boolean calculateBitmapIndex
+      final boolean enableBitmapIndexes
   )
   {
-    this(name, expression, outputType, () -> parsedExpression, calculateBitmapIndex);
+    this(name, expression, outputType, () -> parsedExpression, enableBitmapIndexes);
   }
 
   /**
@@ -145,7 +145,7 @@ public class ExpressionVirtualColumn implements VirtualColumn
       final String expression,
       @Nullable final ColumnType outputType,
       final Supplier<Expr> parsedExpression,
-      final boolean calculateBitmapIndex
+      final boolean enableBitmapIndexes
   )
   {
     this.name = Preconditions.checkNotNull(name, "name");
@@ -153,7 +153,7 @@ public class ExpressionVirtualColumn implements VirtualColumn
     this.outputType = outputType;
     this.parsedExpression = parsedExpression;
     this.cacheKey = makeCacheKeySupplier();
-    this.calculateBitmapIndex = calculateBitmapIndex;
+    this.enableBitmapIndexes = enableBitmapIndexes;
   }
 
   @JsonProperty("name")
@@ -183,10 +183,10 @@ public class ExpressionVirtualColumn implements VirtualColumn
     return parsedExpression;
   }
 
-  @JsonProperty("calculateBitmapIndex")
-  public boolean isCalculateBitmapIndex()
+  @JsonProperty("enableBitmapIndexes")
+  public boolean isEnableBitmapIndexes()
   {
-    return calculateBitmapIndex;
+    return enableBitmapIndexes;
   }
 
   @Override
@@ -281,7 +281,8 @@ public class ExpressionVirtualColumn implements VirtualColumn
       ColumnIndexSelector columnIndexSelector
   )
   {
-    return calculateBitmapIndex ? getParsedExpression().get().asColumnIndexSupplier(columnIndexSelector, outputType) : NoIndexesColumnIndexSupplier.getInstance();
+    return enableBitmapIndexes
+           ? getParsedExpression().get().asColumnIndexSupplier(columnIndexSelector, outputType) : NoIndexesColumnIndexSupplier.getInstance();
   }
 
   @Override

@@ -83,6 +83,10 @@ public class DruidExpression
 
   // Must be sorted
   private static final char[] SAFE_CHARS = " ,._-;:(){}[]<>!@#$%^&*`~?/".toCharArray();
+  private static final VirtualColumnCreator TRUE_EXPRESSION_VC =
+      new ExpressionVirtualColumnCreator(true);
+  private static final VirtualColumnCreator FALSE_EXPRESSION_VC =
+      new ExpressionVirtualColumnCreator(false);
 
   static {
     Arrays.sort(SAFE_CHARS);
@@ -164,6 +168,15 @@ public class DruidExpression
     return functionCall(functionName).compile(Arrays.asList(args));
   }
 
+  @Deprecated
+  public static DruidExpression ofLiteral(
+      @Nullable final ColumnType columnType,
+      final String literal
+  )
+  {
+    return ofLiteral(columnType, literal, true);
+  }
+
   public static DruidExpression ofLiteral(
       @Nullable final ColumnType columnType,
       final String literal,
@@ -179,6 +192,11 @@ public class DruidExpression
         null,
         calculateExpressionBitmapIndex
     );
+  }
+
+  @Deprecated
+  public static DruidExpression ofStringLiteral(final String s){
+    return ofStringLiteral(s, true);
   }
 
   public static DruidExpression ofStringLiteral(final String s, final boolean calculateExpressionBitmapIndex)
@@ -204,9 +222,24 @@ public class DruidExpression
     );
   }
 
+  @Deprecated
+  public static DruidExpression ofColumn(final ColumnType columnType, final String column)
+  {
+    return ofColumn(columnType, column, true);
+  }
+
   public static DruidExpression ofColumn(final ColumnType columnType, final String column, final boolean calculateExpressionBitmapIndex)
   {
     return ofColumn(columnType, column, SimpleExtraction.of(column, null), calculateExpressionBitmapIndex);
+  }
+
+  @Deprecated
+  public static DruidExpression ofFunctionCall(
+      final ColumnType columnType,
+      final String functionName,
+      final List<DruidExpression> args)
+  {
+    return ofFunctionCall(columnType, functionName, args, true);
   }
 
   public static DruidExpression ofFunctionCall(
@@ -219,6 +252,16 @@ public class DruidExpression
     return new DruidExpression(NodeType.EXPRESSION, columnType, null, functionCall(functionName), args, null, calculateExpressionBitmapIndex);
   }
 
+  @Deprecated
+  public static DruidExpression ofVirtualColumn(
+      final ColumnType type,
+      final ExpressionGenerator expressionGenerator,
+      final List<DruidExpression> arguments,
+      final VirtualColumnCreator virtualColumnCreator)
+  {
+    return ofVirtualColumn(type, expressionGenerator, arguments, virtualColumnCreator, true);
+  }
+
   public static DruidExpression ofVirtualColumn(
       final ColumnType type,
       final ExpressionGenerator expressionGenerator,
@@ -228,6 +271,15 @@ public class DruidExpression
   )
   {
     return new DruidExpression(NodeType.SPECIALIZED, type, null, expressionGenerator, arguments, virtualColumnCreator, calculateExpressionBitmapIndex);
+  }
+
+  @Deprecated
+  public static DruidExpression ofExpression(
+      @Nullable final ColumnType columnType,
+      final ExpressionGenerator expressionGenerator,
+      final List<DruidExpression> arguments)
+  {
+    return ofExpression(columnType, expressionGenerator, arguments, true);
   }
 
   public static DruidExpression ofExpression(
@@ -265,7 +317,7 @@ public class DruidExpression
         new LiteralExpressionGenerator(expression),
         Collections.emptyList(),
         null,
-        false
+        true
     );
   }
 
@@ -283,7 +335,7 @@ public class DruidExpression
         new IdentifierExpressionGenerator(column),
         Collections.emptyList(),
         null,
-        false
+        true
     );
   }
 
@@ -301,7 +353,7 @@ public class DruidExpression
         new LiteralExpressionGenerator(expression),
         Collections.emptyList(),
         null,
-        false
+        true
     );
   }
 
@@ -319,7 +371,7 @@ public class DruidExpression
         new LiteralExpressionGenerator(functionCall(functionName, args)),
         Collections.emptyList(),
         null,
-        false
+        true
     );
   }
 
@@ -340,26 +392,6 @@ public class DruidExpression
       @Nullable final SimpleExtraction simpleExtraction,
       final ExpressionGenerator expressionGenerator,
       final List<DruidExpression> arguments,
-      @Nullable final VirtualColumnCreator virtualColumnCreator,
-      final boolean calculateExpressionBitmapIndex
-  )
-  {
-    this.nodeType = nodeType;
-    this.druidType = druidType;
-    this.simpleExtraction = simpleExtraction;
-    this.expressionGenerator = Preconditions.checkNotNull(expressionGenerator);
-    this.arguments = arguments;
-    this.virtualColumnCreator = virtualColumnCreator != null ? virtualColumnCreator : new ExpressionVirtualColumnCreator(calculateExpressionBitmapIndex);
-    this.expression = Suppliers.memoize(() -> this.expressionGenerator.compile(this.arguments));
-  }
-
-  // for internal use when VirtualColumnCreator is known
-  private DruidExpression(
-      final NodeType nodeType,
-      @Nullable final ColumnType druidType,
-      @Nullable final SimpleExtraction simpleExtraction,
-      final ExpressionGenerator expressionGenerator,
-      final List<DruidExpression> arguments,
       final VirtualColumnCreator virtualColumnCreator
   )
   {
@@ -368,8 +400,30 @@ public class DruidExpression
     this.simpleExtraction = simpleExtraction;
     this.expressionGenerator = Preconditions.checkNotNull(expressionGenerator);
     this.arguments = arguments;
-    this.virtualColumnCreator = virtualColumnCreator;
+    this.virtualColumnCreator = Preconditions.checkNotNull(virtualColumnCreator);
     this.expression = Suppliers.memoize(() -> this.expressionGenerator.compile(this.arguments));
+  }
+
+  private DruidExpression(
+      final NodeType nodeType,
+      @Nullable final ColumnType druidType,
+      @Nullable final SimpleExtraction simpleExtraction,
+      final ExpressionGenerator expressionGenerator,
+      final List<DruidExpression> arguments,
+      @Nullable final VirtualColumnCreator virtualColumnCreator,
+      final boolean calculateExpressionBitmapIndex
+  )
+  {
+    this(
+        nodeType,
+        druidType,
+        simpleExtraction,
+        expressionGenerator,
+        arguments,
+        virtualColumnCreator != null
+                                    ? virtualColumnCreator
+                                    : (calculateExpressionBitmapIndex ? TRUE_EXPRESSION_VC : FALSE_EXPRESSION_VC)
+    );
   }
 
   public String getExpression()
@@ -426,7 +480,9 @@ public class DruidExpression
       final boolean calculateExpressionBitmapIndex
   )
   {
-    return ExpressionVirtualColumnCreator.create(name, outputType, expression.get(), parser, calculateExpressionBitmapIndex);
+    final VirtualColumnCreator creator =
+        calculateExpressionBitmapIndex ? TRUE_EXPRESSION_VC : FALSE_EXPRESSION_VC;
+    return creator.create(name, outputType, expression.get(), parser);
   }
 
   public NodeType getType()
@@ -639,11 +695,6 @@ public class DruidExpression
 
     @Override
     public VirtualColumn create(String name, ColumnType outputType, String expression, ExpressionParser parser)
-    {
-      return new ExpressionVirtualColumn(name, expression, parser.parse(expression), outputType, calculateExpressionBitmapIndex);
-    }
-
-    public static VirtualColumn create(String name, ColumnType outputType, String expression, ExpressionParser parser, boolean calculateExpressionBitmapIndex)
     {
       return new ExpressionVirtualColumn(name, expression, parser.parse(expression), outputType, calculateExpressionBitmapIndex);
     }
