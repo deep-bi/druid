@@ -59,7 +59,7 @@ public class BinaryOperatorConversion implements SqlOperatorConversion
         plannerContext,
         rowSignature,
         rexNode,
-        getOperatorFunction(rexNode)
+        getOperatorFunction(rexNode, plannerContext)
     );
   }
 
@@ -76,12 +76,12 @@ public class BinaryOperatorConversion implements SqlOperatorConversion
         plannerContext,
         rowSignature,
         rexNode,
-        getOperatorFunction(rexNode),
+        getOperatorFunction(rexNode, plannerContext),
         postAggregatorVisitor
     );
   }
 
-  private DruidExpression.DruidExpressionCreator getOperatorFunction(RexNode rexNode)
+  private DruidExpression.DruidExpressionCreator getOperatorFunction(RexNode rexNode, PlannerContext plannerContext)
   {
     return operands -> {
       if (operands.size() < 2) {
@@ -98,7 +98,8 @@ public class BinaryOperatorConversion implements SqlOperatorConversion
                       .collect(Collectors.toList())
               )
           ),
-          operands
+          operands,
+          plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex()
       );
     };
   }

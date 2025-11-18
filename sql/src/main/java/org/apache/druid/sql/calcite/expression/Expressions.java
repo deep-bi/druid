@@ -236,7 +236,7 @@ public class Expressions
   {
     final SqlKind kind = rexNode.getKind();
     if (kind == SqlKind.INPUT_REF) {
-      return inputRefToDruidExpression(rowSignature, rexNode);
+      return inputRefToDruidExpression(rowSignature, rexNode, plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex());
     } else if (rexNode instanceof RexCall) {
       return rexCallToDruidExpression(plannerContext, rowSignature, rexNode, postAggregatorVisitor);
     } else if (kind == SqlKind.LITERAL) {
@@ -249,7 +249,8 @@ public class Expressions
 
   private static DruidExpression inputRefToDruidExpression(
       final RowSignature rowSignature,
-      final RexNode rexNode
+      final RexNode rexNode,
+      final boolean calculateExpressionBitmapIndex
   )
   {
     // Translate field references.
@@ -260,7 +261,7 @@ public class Expressions
       throw new ISE("Expression referred to nonexistent index[%d]", ref.getIndex());
     }
 
-    return DruidExpression.ofColumn(columnType.orElse(null), columnName);
+    return DruidExpression.ofColumn(columnType.orElse(null), columnName, calculateExpressionBitmapIndex);
   }
 
   private static DruidExpression rexCallToDruidExpression(
@@ -292,7 +293,7 @@ public class Expressions
         if (postAggregator != null) {
           postAggregatorVisitor.addPostAgg(postAggregator);
           String exprName = postAggregator.getName();
-          return DruidExpression.ofColumn(postAggregator.getType(rowSignature), exprName);
+          return DruidExpression.ofColumn(postAggregator.getType(rowSignature), exprName, plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex());
         }
       }
 
@@ -316,46 +317,47 @@ public class Expressions
 
     // Translate literal.
     final ColumnType columnType = Calcites.getColumnTypeForRelDataType(rexNode.getType());
+    final boolean calculateExpressionBitmapIndex = plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex();
     if (RexLiteral.isNullLiteral(rexNode)) {
-      return DruidExpression.ofLiteral(columnType, DruidExpression.nullLiteral());
+      return DruidExpression.ofLiteral(columnType, DruidExpression.nullLiteral(), calculateExpressionBitmapIndex);
     } else if (SqlTypeName.INT_TYPES.contains(sqlTypeName)) {
       final Number number = (Number) RexLiteral.value(rexNode);
       return DruidExpression.ofLiteral(
           columnType,
-          number == null ? DruidExpression.nullLiteral() : DruidExpression.longLiteral(number.longValue())
+          number == null ? DruidExpression.nullLiteral() : DruidExpression.longLiteral(number.longValue()), calculateExpressionBitmapIndex
       );
     } else if (SqlTypeName.NUMERIC_TYPES.contains(sqlTypeName)) {
       // Numeric, non-INT, means we represent it as a double.
       final Number number = (Number) RexLiteral.value(rexNode);
       return DruidExpression.ofLiteral(
           columnType,
-          number == null ? DruidExpression.nullLiteral() : DruidExpression.doubleLiteral(number.doubleValue())
+          number == null ? DruidExpression.nullLiteral() : DruidExpression.doubleLiteral(number.doubleValue()), calculateExpressionBitmapIndex
       );
     } else if (SqlTypeFamily.INTERVAL_DAY_TIME == sqlTypeName.getFamily()) {
       // Calcite represents DAY-TIME intervals in milliseconds.
       final long milliseconds = ((Number) RexLiteral.value(rexNode)).longValue();
-      return DruidExpression.ofLiteral(columnType, DruidExpression.longLiteral(milliseconds));
+      return DruidExpression.ofLiteral(columnType, DruidExpression.longLiteral(milliseconds), calculateExpressionBitmapIndex);
     } else if (SqlTypeFamily.INTERVAL_YEAR_MONTH == sqlTypeName.getFamily()) {
       // Calcite represents YEAR-MONTH intervals in months.
       final long months = ((Number) RexLiteral.value(rexNode)).longValue();
-      return DruidExpression.ofLiteral(columnType, DruidExpression.longLiteral(months));
+      return DruidExpression.ofLiteral(columnType, DruidExpression.longLiteral(months), calculateExpressionBitmapIndex);
     } else if (SqlTypeName.STRING_TYPES.contains(sqlTypeName)) {
-      return DruidExpression.ofStringLiteral(RexLiteral.stringValue(rexNode));
+      return DruidExpression.ofStringLiteral(RexLiteral.stringValue(rexNode), calculateExpressionBitmapIndex);
     } else if (SqlTypeName.TIMESTAMP == sqlTypeName || SqlTypeName.DATE == sqlTypeName) {
       if (RexLiteral.isNullLiteral(rexNode)) {
-        return DruidExpression.ofLiteral(columnType, DruidExpression.nullLiteral());
+        return DruidExpression.ofLiteral(columnType, DruidExpression.nullLiteral(), calculateExpressionBitmapIndex);
       } else {
         return DruidExpression.ofLiteral(
             columnType,
             DruidExpression.longLiteral(
                 Calcites.calciteDateTimeLiteralToJoda(rexNode, plannerContext.getTimeZone()).getMillis()
-            )
+            ), calculateExpressionBitmapIndex
         );
       }
     } else if (SqlTypeName.BOOLEAN == sqlTypeName) {
       return DruidExpression.ofLiteral(
           columnType,
-          DruidExpression.longLiteral(RexLiteral.booleanValue(rexNode) ? 1 : 0)
+          DruidExpression.longLiteral(RexLiteral.booleanValue(rexNode) ? 1 : 0), calculateExpressionBitmapIndex
       );
     } else {
       // Can't translate other literals.
