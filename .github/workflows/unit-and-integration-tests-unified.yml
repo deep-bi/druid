@@ -87,7 +87,7 @@ jobs:
         run: |
           mvn org.apache.maven.plugins:maven-install-plugin:3.1.1:install-file \
             -Dfile=jars/netty-3.10.6.Final-patch2.jar \
-            -DgroupId=org.jboss.netty \
+            -DgroupId=io.netty \
             -DartifactId=netty \
             -Dversion=3.10.6.Final-patch2 \
             -Dpackaging=jar
