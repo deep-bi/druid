@@ -73,6 +73,8 @@ jobs:
 
       # custom deepbi druid distribution druid requires netty patch
       - name: load patched netty to local repo
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           gh release download \
