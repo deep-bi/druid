@@ -25,22 +25,6 @@ set -e
 # Enable for debugging
 #set -x
 
-function ensure_docker_compose {
-  if command -v docker-compose >/dev/null 2>&1; then
-    return
-  fi
-
-  if command -v apt-get >/dev/null 2>&1 && command -v sudo >/dev/null 2>&1; then
-    echo "docker-compose not found, installing via apt-get..." >&2
-    sudo apt-get update -y
-    sudo apt-get install -y docker-compose
-    return
-  fi
-
-  echo "docker-compose not found and cannot auto-install." >&2
-  exit 1
-}
-
 function ensure_patched_netty {
   local version="3.10.6.Final-patch2"
   local groupPath="io/netty/netty"
@@ -273,7 +257,6 @@ TEST_OPTIONS="verify -P skip-static-checks,docker-tests \
 
 if [[ "$CMD" != "help" && "$CMD" != "prune-containers" && "$CMD" != "prune-volumes" ]]; then
   ensure_patched_netty
-  ensure_docker_compose
 fi
 
 case $CMD in
