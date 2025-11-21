@@ -71,32 +71,6 @@ jobs:
           distribution: 'zulu'
           java-version: ${{ matrix.jdk }}
 
-      - name: Install docker-compose v1
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y docker-compose
-
-      # custom deepbi druid distribution druid requires netty patch
-      - name: load patched netty to local repo
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          gh release download \
-            netty-3.10.6.Final-patch2 \
-            -R deep-bi/netty \
-            -D jars \
-            -p '*.jar'
-
-      - name: Install patched netty into local Maven repo
-        run: |
-          mvn org.apache.maven.plugins:maven-install-plugin:3.1.1:install-file \
-            -Dfile=jars/netty-3.10.6.Final-patch2.jar \
-            -DgroupId=io.netty \
-            -DartifactId=netty \
-            -Dversion=3.10.6.Final-patch2 \
-            -Dpackaging=jar
-
       # the build step produces SNAPSHOT artifacts into the local maven repository,
       # we include github.sha in the cache key to make it specific to that build/jdk
       - name: Cache Maven m2 repository
