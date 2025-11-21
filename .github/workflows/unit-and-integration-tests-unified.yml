@@ -92,6 +92,11 @@ jobs:
             -Dversion=3.10.6.Final-patch2 \
             -Dpackaging=jar
 
+      - name: Install docker-compose v1
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y docker-compose
+
       # the build step produces SNAPSHOT artifacts into the local maven repository,
       # we include github.sha in the cache key to make it specific to that build/jdk
       - name: Cache Maven m2 repository
