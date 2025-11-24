@@ -19,7 +19,6 @@
 
 package org.apache.druid.sql.calcite.expression;
 
-import org.apache.druid.math.expr.Expr;
 import org.apache.druid.math.expr.Parser;
 import org.apache.druid.query.expression.TestExprMacroTable;
 import org.apache.druid.segment.column.ColumnType;

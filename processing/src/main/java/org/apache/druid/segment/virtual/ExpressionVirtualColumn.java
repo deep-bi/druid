@@ -73,7 +73,7 @@ public class ExpressionVirtualColumn implements VirtualColumn
       @JsonProperty("expression") String expression,
       @JsonProperty("outputType") @Nullable ColumnType outputType,
       @JacksonInject ExprMacroTable macroTable,
-      @JsonProperty("calculateBitmapIndex") @Nullable Boolean enableBitmapIndexes
+      @JsonProperty("enableBitmapIndexes") @Nullable Boolean enableBitmapIndexes
   )
   {
     this(name, expression, outputType, Parser.lazyParse(expression, macroTable), enableBitmapIndexes == null || enableBitmapIndexes);
@@ -131,10 +131,10 @@ public class ExpressionVirtualColumn implements VirtualColumn
       final String name,
       final Expr parsedExpression,
       @Nullable final ColumnType outputType,
-      final boolean calculateBitmapIndex
+      final boolean enableBitmapIndexes
   )
   {
-    this(name, parsedExpression.toString(), outputType, () -> parsedExpression, calculateBitmapIndex);
+    this(name, parsedExpression.toString(), outputType, () -> parsedExpression, enableBitmapIndexes);
   }
 
   /**

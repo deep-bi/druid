@@ -195,7 +195,8 @@ public class DruidExpression
   }
 
   @Deprecated
-  public static DruidExpression ofStringLiteral(final String s){
+  public static DruidExpression ofStringLiteral(final String s)
+  {
     return ofStringLiteral(s, true);
   }
 
