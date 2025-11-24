@@ -83,7 +83,8 @@ public class ComplexDecodeBase64OperatorConversion implements SqlOperatorConvers
           return DruidExpression.ofExpression(
               ColumnType.ofComplex(arg0.substring(1, arg0.length() - 1)),
               DruidExpression.functionCall(BuiltInExprMacros.ComplexDecodeBase64ExprMacro.NAME),
-              druidExpressions
+              druidExpressions,
+              plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex()
           );
         }
     );

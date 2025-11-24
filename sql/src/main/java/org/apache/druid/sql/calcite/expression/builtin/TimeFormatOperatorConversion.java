@@ -91,15 +91,16 @@ public class TimeFormatOperatorConversion implements SqlOperatorConversion
         },
         plannerContext.getTimeZone()
     );
+    final boolean calculateExpressionBitmapIndex = plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex();
 
     return DruidExpression.ofFunctionCall(
         Calcites.getColumnTypeForRelDataType(rexNode.getType()),
         "timestamp_format",
         ImmutableList.of(
             timeExpression,
-            DruidExpression.ofStringLiteral(pattern),
-            DruidExpression.ofStringLiteral(timeZone.getID())
-        )
+            DruidExpression.ofStringLiteral(pattern, calculateExpressionBitmapIndex),
+            DruidExpression.ofStringLiteral(timeZone.getID(), calculateExpressionBitmapIndex)
+        ), calculateExpressionBitmapIndex
     );
   }
 }

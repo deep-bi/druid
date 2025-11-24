@@ -86,6 +86,7 @@ public abstract class TimeArithmeticOperatorConversion implements SqlOperatorCon
     }
 
     final ColumnType outputType = Calcites.getColumnTypeForRelDataType(rexNode.getType());
+    final boolean calculateExpressionBitmapIndex = plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex();
 
     if (rightRexNode.getType().getFamily() == SqlTypeFamily.INTERVAL_YEAR_MONTH) {
       // timestamp_expr { + | - } <interval_expr> (year-month interval)
@@ -102,9 +103,9 @@ public abstract class TimeArithmeticOperatorConversion implements SqlOperatorCon
                     StringUtils.format("'P%sM'", RexLiteral.value(rightRexNode)) :
                     StringUtils.format("concat('P', %s, 'M')", expression)
               ),
-              DruidExpression.ofLiteral(ColumnType.LONG, DruidExpression.longLiteral(direction > 0 ? 1 : -1)),
-              DruidExpression.ofStringLiteral(plannerContext.getTimeZone().getID())
-          )
+              DruidExpression.ofLiteral(ColumnType.LONG, DruidExpression.longLiteral(direction > 0 ? 1 : -1), calculateExpressionBitmapIndex),
+              DruidExpression.ofStringLiteral(plannerContext.getTimeZone().getID(), calculateExpressionBitmapIndex)
+          ), calculateExpressionBitmapIndex
       );
     } else if (rightRexNode.getType().getFamily() == SqlTypeFamily.INTERVAL_DAY_TIME) {
       // timestamp_expr { + | - } <interval_expr> (day-time interval)
@@ -117,7 +118,7 @@ public abstract class TimeArithmeticOperatorConversion implements SqlOperatorCon
               direction > 0 ? "+" : "-",
               args.get(1).getExpression()
           ),
-          ImmutableList.of(leftExpr, rightExpr)
+          ImmutableList.of(leftExpr, rightExpr), calculateExpressionBitmapIndex
       );
     } else if ((leftRexNode.getType().getFamily() == SqlTypeFamily.TIMESTAMP ||
         leftRexNode.getType().getFamily() == SqlTypeFamily.DATE) &&
@@ -134,8 +135,8 @@ public abstract class TimeArithmeticOperatorConversion implements SqlOperatorCon
             ImmutableList.of(
                 leftExpr,
                 rightExpr,
-                DruidExpression.ofStringLiteral(plannerContext.getTimeZone().getID())
-            )
+                DruidExpression.ofStringLiteral(plannerContext.getTimeZone().getID(), calculateExpressionBitmapIndex)
+            ), calculateExpressionBitmapIndex
         );
       } else {
         return DruidExpression.ofExpression(
@@ -146,7 +147,7 @@ public abstract class TimeArithmeticOperatorConversion implements SqlOperatorCon
                 "-",
                 args.get(1).getExpression()
             ),
-            ImmutableList.of(leftExpr, rightExpr)
+            ImmutableList.of(leftExpr, rightExpr), calculateExpressionBitmapIndex
         );
       }
     } else {

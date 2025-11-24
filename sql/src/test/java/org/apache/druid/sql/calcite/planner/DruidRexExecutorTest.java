@@ -172,9 +172,9 @@ public class DruidRexExecutorTest extends InitializedNullHandlingTest
             ColumnType.DOUBLE_ARRAY,
             DruidExpression.functionCall("array"),
             ImmutableList.of(
-                DruidExpression.ofLiteral(ColumnType.DOUBLE, "50.12"),
-                DruidExpression.ofLiteral(ColumnType.DOUBLE, "12.1")
-            )
+                DruidExpression.ofLiteral(ColumnType.DOUBLE, "50.12", true),
+                DruidExpression.ofLiteral(ColumnType.DOUBLE, "12.1", true)
+            ), true
         ),
         Expressions.toDruidExpression(
             PLANNER_CONTEXT,
@@ -200,9 +200,9 @@ public class DruidRexExecutorTest extends InitializedNullHandlingTest
             ColumnType.LONG_ARRAY,
             DruidExpression.functionCall("array"),
             ImmutableList.of(
-                DruidExpression.ofLiteral(ColumnType.LONG, "50"),
-                DruidExpression.ofLiteral(ColumnType.LONG, "12")
-            )
+                DruidExpression.ofLiteral(ColumnType.LONG, "50", true),
+                DruidExpression.ofLiteral(ColumnType.LONG, "12", true)
+            ), true
         ),
         Expressions.toDruidExpression(
             PLANNER_CONTEXT,
@@ -230,9 +230,9 @@ public class DruidRexExecutorTest extends InitializedNullHandlingTest
             ColumnType.STRING,
             DruidExpression.functionCall("string_to_array"),
             ImmutableList.of(
-                DruidExpression.ofStringLiteral("a,b,c"),
-                DruidExpression.ofStringLiteral(",")
-            )
+                DruidExpression.ofStringLiteral("a,b,c", true),
+                DruidExpression.ofStringLiteral(",", true)
+            ), true
         ),
         Expressions.toDruidExpression(
             PLANNER_CONTEXT,

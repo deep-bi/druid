@@ -1,0 +1,74 @@
+name: "Deepbi Unit & Integration Tests Workflow"
+
+on:
+  workflow_dispatch:
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        java: [ 8, 11, 17 ]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+          cache: maven
+
+      - name: Run unit tests
+        run: |
+          echo ">>> Running unit tests on JDK ${{ matrix.java }}"
+          mvn -B -ff -q test
+
+      - name: Upload unit test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-reports-jdk-${{ matrix.java }}
+          path: |
+            **/target/surefire-reports/*.xml
+            **/target/surefire-reports/*.txt
+            **/target/surefire-reports/*.dump
+            **/target/surefire-reports/*.out
+
+  integration-tests:
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    strategy:
+      fail-fast: true
+      matrix:
+        java: [ 8, 11, 17 ]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ matrix.java }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+          cache: maven
+
+      - name: Run integration tests
+        run: |
+          echo ">>> Running integration tests on JDK ${{ matrix.java }}"
+          mvn -B -ff -q verify -P integration-tests
+
+      - name: Upload integration test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-reports-jdk-${{ matrix.java }}
+          path: |
+            **/target/failsafe-reports/*.xml
+            **/target/failsafe-reports/*.txt
+            **/target/failsafe-reports/*.dump
+            **/target/failsafe-reports/*.out

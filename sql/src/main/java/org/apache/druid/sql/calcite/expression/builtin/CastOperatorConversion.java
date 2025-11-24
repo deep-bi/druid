@@ -134,14 +134,15 @@ public class CastOperatorConversion implements SqlOperatorConversion
   )
   {
     // Cast strings to datetimes by parsing them from SQL format.
+    final boolean calculateExpressionBitmapIndex = plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex();
     final DruidExpression timestampExpression = DruidExpression.ofFunctionCall(
         toDruidType,
         "timestamp_parse",
         ImmutableList.of(
             operand,
-            DruidExpression.ofLiteral(null, DruidExpression.nullLiteral()),
-            DruidExpression.ofStringLiteral(plannerContext.getTimeZone().getID())
-        )
+            DruidExpression.ofLiteral(null, DruidExpression.nullLiteral(), calculateExpressionBitmapIndex),
+            DruidExpression.ofStringLiteral(plannerContext.getTimeZone().getID(), calculateExpressionBitmapIndex)
+        ), calculateExpressionBitmapIndex
     );
 
     if (toType == SqlTypeName.DATE) {
@@ -164,14 +165,15 @@ public class CastOperatorConversion implements SqlOperatorConversion
       final ColumnType toDruidType
   )
   {
+    final boolean calculateExpressionBitmapIndex = plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex();
     return DruidExpression.ofFunctionCall(
         toDruidType,
         "timestamp_format",
         ImmutableList.of(
             operand,
-            DruidExpression.ofStringLiteral(dateTimeFormatString(fromType)),
-            DruidExpression.ofStringLiteral(plannerContext.getTimeZone().getID())
-        )
+            DruidExpression.ofStringLiteral(dateTimeFormatString(fromType), calculateExpressionBitmapIndex),
+            DruidExpression.ofStringLiteral(plannerContext.getTimeZone().getID(), calculateExpressionBitmapIndex)
+        ), calculateExpressionBitmapIndex
     );
   }
 

@@ -25,6 +25,37 @@ set -e
 # Enable for debugging
 #set -x
 
+function ensure_patched_netty {
+  local version="3.10.6.Final-patch2"
+  local groupPath="io/netty/netty"
+
+  local repo="${M2_REPO:-$HOME/.m2/repository}"
+  local jar="${repo}/${groupPath}/${version}/netty-${version}.jar"
+
+  if [ -f "$jar" ]; then
+    return
+  fi
+
+  echo "Patched Netty ${version} not found in ${repo}, downloading and installing..." >&2
+
+  local tmpdir
+  tmpdir="$(mktemp -d)"
+  local tmpjar="${tmpdir}/netty-${version}.jar"
+
+  local url="https://github.com/deep-bi/netty/releases/download/netty-3.10.6.Final-patch2/netty-3.10.6.Final-patch2.jar"
+
+  curl -fL "$url" -o "$tmpjar"
+
+  mvn -q org.apache.maven.plugins:maven-install-plugin:3.1.1:install-file \
+    -Dfile="${tmpjar}" \
+    -DgroupId=io.netty \
+    -DartifactId=netty \
+    -Dversion="${version}" \
+    -Dpackaging=jar
+
+  rm -rf "$tmpdir"
+}
+
 export DRUID_DEV=$(cd $(dirname $0) && pwd)
 
 function usage
@@ -223,6 +254,10 @@ IT_CASES_DIR="$DRUID_DEV/integration-tests-ex/cases"
 MAVEN_IGNORE="-P skip-static-checks,skip-tests -Dmaven.javadoc.skip=true -Dcyclonedx.skip=true"
 TEST_OPTIONS="verify -P skip-static-checks,docker-tests \
             -Dmaven.javadoc.skip=true -Dcyclonedx.skip=true -DskipUTs=true"
+
+if [[ "$CMD" != "help" && "$CMD" != "prune-containers" && "$CMD" != "prune-volumes" ]]; then
+  ensure_patched_netty
+fi
 
 case $CMD in
   "help" )

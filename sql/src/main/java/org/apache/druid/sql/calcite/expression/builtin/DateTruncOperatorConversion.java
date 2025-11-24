@@ -103,16 +103,17 @@ public class DateTruncOperatorConversion implements SqlOperatorConversion
                 truncType
             );
           }
+          final boolean calculateExpressionBitmapIndex = plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex();
 
           return DruidExpression.ofFunctionCall(
               Calcites.getColumnTypeForRelDataType(rexNode.getType()),
               "timestamp_floor",
               ImmutableList.of(
                   arg,
-                  DruidExpression.ofStringLiteral(truncPeriod.toString()),
-                  DruidExpression.ofStringLiteral(null),
-                  DruidExpression.ofStringLiteral(plannerContext.getTimeZone().getID())
-              )
+                  DruidExpression.ofStringLiteral(truncPeriod.toString(), calculateExpressionBitmapIndex),
+                  DruidExpression.ofStringLiteral(null, calculateExpressionBitmapIndex),
+                  DruidExpression.ofStringLiteral(plannerContext.getTimeZone().getID(), calculateExpressionBitmapIndex)
+              ), calculateExpressionBitmapIndex
           );
         }
     );

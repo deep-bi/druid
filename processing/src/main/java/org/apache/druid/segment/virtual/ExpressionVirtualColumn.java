@@ -45,6 +45,7 @@ import org.apache.druid.segment.column.ColumnCapabilitiesImpl;
 import org.apache.druid.segment.column.ColumnIndexSupplier;
 import org.apache.druid.segment.column.ColumnType;
 import org.apache.druid.segment.column.ValueType;
+import org.apache.druid.segment.serde.NoIndexesColumnIndexSupplier;
 import org.apache.druid.segment.vector.SingleValueDimensionVectorSelector;
 import org.apache.druid.segment.vector.VectorColumnSelectorFactory;
 import org.apache.druid.segment.vector.VectorObjectSelector;
@@ -64,19 +65,40 @@ public class ExpressionVirtualColumn implements VirtualColumn
   private final ColumnType outputType;
   private final Supplier<Expr> parsedExpression;
   private final Supplier<byte[]> cacheKey;
+  private final boolean enableBitmapIndexes;
 
-  /**
-   * Constructor for deserialization.
-   */
   @JsonCreator
   public ExpressionVirtualColumn(
       @JsonProperty("name") String name,
       @JsonProperty("expression") String expression,
       @JsonProperty("outputType") @Nullable ColumnType outputType,
+      @JacksonInject ExprMacroTable macroTable,
+      @JsonProperty("calculateBitmapIndex") @Nullable Boolean enableBitmapIndexes
+  )
+  {
+    this(name, expression, outputType, Parser.lazyParse(expression, macroTable), enableBitmapIndexes == null || enableBitmapIndexes);
+  }
+
+  public ExpressionVirtualColumn(
+      final String name,
+      final Expr parsedExpression,
+      @Nullable final ColumnType outputType
+  )
+  {
+    this(name, parsedExpression.toString(), outputType, () -> parsedExpression, true);
+  }
+
+  /**
+   * Constructor for deserialization.
+   */
+  public ExpressionVirtualColumn(
+      String name,
+      String expression,
+      @Nullable ColumnType outputType,
       @JacksonInject ExprMacroTable macroTable
   )
   {
-    this(name, expression, outputType, Parser.lazyParse(expression, macroTable));
+    this(name, expression, outputType, Parser.lazyParse(expression, macroTable), true);
   }
 
   /**
@@ -87,10 +109,11 @@ public class ExpressionVirtualColumn implements VirtualColumn
       final String name,
       final String expression,
       final Expr parsedExpression,
-      @Nullable final ColumnType outputType
+      @Nullable final ColumnType outputType,
+      final boolean enableBitmapIndexes
   )
   {
-    this(name, expression, outputType, () -> parsedExpression);
+    this(name, expression, outputType, () -> parsedExpression, enableBitmapIndexes);
   }
 
   /**
@@ -107,10 +130,11 @@ public class ExpressionVirtualColumn implements VirtualColumn
   public ExpressionVirtualColumn(
       final String name,
       final Expr parsedExpression,
-      @Nullable final ColumnType outputType
+      @Nullable final ColumnType outputType,
+      final boolean calculateBitmapIndex
   )
   {
-    this(name, parsedExpression.toString(), outputType, () -> parsedExpression);
+    this(name, parsedExpression.toString(), outputType, () -> parsedExpression, calculateBitmapIndex);
   }
 
   /**
@@ -120,7 +144,8 @@ public class ExpressionVirtualColumn implements VirtualColumn
       final String name,
       final String expression,
       @Nullable final ColumnType outputType,
-      final Supplier<Expr> parsedExpression
+      final Supplier<Expr> parsedExpression,
+      final boolean enableBitmapIndexes
   )
   {
     this.name = Preconditions.checkNotNull(name, "name");
@@ -128,6 +153,7 @@ public class ExpressionVirtualColumn implements VirtualColumn
     this.outputType = outputType;
     this.parsedExpression = parsedExpression;
     this.cacheKey = makeCacheKeySupplier();
+    this.enableBitmapIndexes = enableBitmapIndexes;
   }
 
   @JsonProperty("name")
@@ -155,6 +181,12 @@ public class ExpressionVirtualColumn implements VirtualColumn
   public Supplier<Expr> getParsedExpression()
   {
     return parsedExpression;
+  }
+
+  @JsonProperty("enableBitmapIndexes")
+  public boolean isEnableBitmapIndexes()
+  {
+    return enableBitmapIndexes;
   }
 
   @Override
@@ -249,7 +281,8 @@ public class ExpressionVirtualColumn implements VirtualColumn
       ColumnIndexSelector columnIndexSelector
   )
   {
-    return getParsedExpression().get().asColumnIndexSupplier(columnIndexSelector, outputType);
+    return enableBitmapIndexes
+           ? getParsedExpression().get().asColumnIndexSupplier(columnIndexSelector, outputType) : NoIndexesColumnIndexSupplier.getInstance();
   }
 
   @Override
