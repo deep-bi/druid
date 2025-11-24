@@ -391,8 +391,8 @@ public class DruidExpression
       @Nullable final ColumnType druidType,
       @Nullable final SimpleExtraction simpleExtraction,
       final ExpressionGenerator expressionGenerator,
-      @Nullable final List<DruidExpression> arguments,
-      final VirtualColumnCreator virtualColumnCreator
+      final List<DruidExpression> arguments,
+      @Nullable final VirtualColumnCreator virtualColumnCreator
   )
   {
     this.nodeType = nodeType;
