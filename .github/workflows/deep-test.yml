@@ -9,7 +9,7 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        java: [ 11, 17 ]
+        java: [ 8, 11, 17 ]
 
     steps:
       - name: Checkout code
@@ -44,7 +44,7 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        java: [ 11, 17 ]
+        java: [ 8, 11, 17 ]
 
     steps:
       - name: Checkout code

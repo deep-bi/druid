@@ -391,7 +391,7 @@ public class DruidExpression
       @Nullable final ColumnType druidType,
       @Nullable final SimpleExtraction simpleExtraction,
       final ExpressionGenerator expressionGenerator,
-      final List<DruidExpression> arguments,
+      @Nullable final List<DruidExpression> arguments,
       final VirtualColumnCreator virtualColumnCreator
   )
   {
@@ -400,7 +400,7 @@ public class DruidExpression
     this.simpleExtraction = simpleExtraction;
     this.expressionGenerator = Preconditions.checkNotNull(expressionGenerator);
     this.arguments = arguments;
-    this.virtualColumnCreator = Preconditions.checkNotNull(virtualColumnCreator);
+    this.virtualColumnCreator = virtualColumnCreator != null ? virtualColumnCreator : TRUE_EXPRESSION_VC;
     this.expression = Suppliers.memoize(() -> this.expressionGenerator.compile(this.arguments));
   }
 

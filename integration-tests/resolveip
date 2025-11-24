@@ -1,0 +1,16 @@
+#!/bin/sh
+
+# Minimal resolveip replacement for Druid ITs.
+
+if [ "$1" = "-s" ]; then
+  shift
+fi
+
+if [ -z "$1" ]; then
+  echo "Usage: resolveip [-s] <hostname>" >&2
+  exit 1
+fi
+
+host="$1"
+
+getent ahosts "$host" | awk 'NR==1 {print $1; exit 0}'
