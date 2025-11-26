@@ -91,7 +91,7 @@
         <cronutils.version>9.2.0</cronutils.version>
         <datasketches.version>4.2.0</datasketches.version>
         <datasketches.memory.version>2.2.0</datasketches.memory.version>
-        <derby.version>10.14.2.0</derby.version>
+        <derby.version>10.14.3.0</derby.version>
         <dropwizard.metrics.version>4.2.22</dropwizard.metrics.version>
         <errorprone.version>2.35.1</errorprone.version>
         <fastutil.version>8.5.4</fastutil.version>
@@ -106,7 +106,7 @@
         <log4j.version>2.22.1</log4j.version>
         <mysql.version>8.2.0</mysql.version>
         <mariadb.version>2.7.3</mariadb.version>
-        <netty3.version>3.10.6.Final</netty3.version>
+        <netty3.version>3.10.6.Final-patch2</netty3.version>
         <netty4.version>4.1.122.Final</netty4.version>
         <postgresql.version>42.7.2</postgresql.version>
         <protobuf.version>3.25.5</protobuf.version>
@@ -296,6 +296,11 @@
             <snapshots>
                <enabled>false</enabled>
             </snapshots>
+        </repository>
+
+        <repository>
+            <id>deep-bi-github-artifact</id>
+            <url>https://raw.githubusercontent.com/deep-bi/maven-repo/main</url>
         </repository>
     </repositories>
 
