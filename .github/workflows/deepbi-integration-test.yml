@@ -1,0 +1,10 @@
+# flow to manually trigger the upstream integration tests workflow
+# for this workflow to work on workflow_call trigger should be added to unit-and-integration-tests-unified.yml
+name: "Deepbi Integration Tests Workflow"
+
+on:
+  workflow_dispatch:
+
+jobs:
+  call-existing:
+    uses: ./.github/workflows/unit-and-integration-tests-unified.yml
