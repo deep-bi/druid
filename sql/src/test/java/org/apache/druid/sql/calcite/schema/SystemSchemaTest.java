@@ -26,6 +26,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.ListenableFuture;
 import junitparams.converters.Nullable;
 import org.apache.calcite.DataContext;
 import org.apache.calcite.adapter.java.JavaTypeFactory;
@@ -44,6 +45,7 @@ import org.apache.druid.client.InternalQueryConfig;
 import org.apache.druid.client.TimelineServerView;
 import org.apache.druid.client.coordinator.CoordinatorClient;
 import org.apache.druid.client.coordinator.NoopCoordinatorClient;
+import org.apache.druid.common.guava.GuavaUtils;
 import org.apache.druid.data.input.InputRow;
 import org.apache.druid.data.input.impl.DimensionsSpec;
 import org.apache.druid.data.input.impl.StringDimensionSchema;
@@ -63,9 +65,11 @@ import org.apache.druid.java.util.common.ISE;
 import org.apache.druid.java.util.common.Intervals;
 import org.apache.druid.java.util.common.StringUtils;
 import org.apache.druid.java.util.common.io.Closer;
+import org.apache.druid.java.util.http.client.HttpClient;
 import org.apache.druid.java.util.http.client.Request;
 import org.apache.druid.java.util.http.client.response.HttpResponseHandler;
 import org.apache.druid.java.util.http.client.response.InputStreamFullResponseHolder;
+import org.apache.druid.java.util.http.client.response.StringFullResponseHandler;
 import org.apache.druid.java.util.http.client.response.StringFullResponseHolder;
 import org.apache.druid.query.QueryRunnerFactoryConglomerate;
 import org.apache.druid.query.aggregation.CountAggregatorFactory;
@@ -111,7 +115,10 @@ import org.apache.druid.timeline.SegmentStatusInCluster;
 import org.apache.druid.timeline.partition.NumberedShardSpec;
 import org.apache.druid.timeline.partition.ShardSpec;
 import org.easymock.EasyMock;
+import org.jboss.netty.handler.codec.http.DefaultHttpResponse;
 import org.jboss.netty.handler.codec.http.HttpResponse;
+import org.jboss.netty.handler.codec.http.HttpResponseStatus;
+import org.jboss.netty.handler.codec.http.HttpVersion;
 import org.joda.time.DateTime;
 import org.junit.Assert;
 import org.junit.jupiter.api.AfterAll;
@@ -182,6 +189,7 @@ public class SystemSchemaTest extends CalciteTestBase
   private MetadataSegmentView metadataView;
   private DruidNodeDiscoveryProvider druidNodeDiscoveryProvider;
   private FilteredServerInventoryView serverInventoryView;
+  private HttpClient httpClient;
 
   @BeforeAll
   public static void setUpClass()
@@ -260,6 +268,7 @@ public class SystemSchemaTest extends CalciteTestBase
     metadataView = EasyMock.createMock(MetadataSegmentView.class);
     druidNodeDiscoveryProvider = EasyMock.createMock(DruidNodeDiscoveryProvider.class);
     serverInventoryView = EasyMock.createMock(FilteredServerInventoryView.class);
+    httpClient = EasyMock.createMock(HttpClient.class);
     schema = new SystemSchema(
         druidSchema,
         metadataView,
@@ -269,7 +278,8 @@ public class SystemSchemaTest extends CalciteTestBase
         coordinatorClient,
         overlordClient,
         druidNodeDiscoveryProvider,
-        MAPPER
+        MAPPER,
+        httpClient
     );
   }
 
@@ -381,6 +391,11 @@ public class SystemSchemaTest extends CalciteTestBase
 
   private final DateTime startTime = DateTimes.nowUtc();
 
+  private final String version = GuavaUtils.firstNonNull(
+          SystemSchemaTest.class.getPackage().getImplementationVersion(),
+          DruidNode.UNKNOWN_VERSION
+      );
+
   private final DiscoveryDruidNode coordinator = new DiscoveryDruidNode(
       new DruidNode("s1", "localhost", false, 8081, null, true, false),
       NodeRole.COORDINATOR,
@@ -396,7 +411,7 @@ public class SystemSchemaTest extends CalciteTestBase
   );
 
   private final DiscoveryDruidNode overlord = new DiscoveryDruidNode(
-      new DruidNode("s2", "localhost", false, 8090, null, true, false),
+      new DruidNode("s2", "localhost", false, 8090, null, null, true, false, ImmutableMap.of("overlordKey", "overlordValue")),
       NodeRole.OVERLORD,
       ImmutableMap.of(),
       startTime
@@ -410,7 +425,7 @@ public class SystemSchemaTest extends CalciteTestBase
   );
 
   private final DiscoveryDruidNode broker1 = new DiscoveryDruidNode(
-      new DruidNode("s3", "localhost", false, 8082, null, true, false),
+      new DruidNode("s3", "localhost", false, 8082, null, null, true, false, ImmutableMap.of("brokerKey", "brokerValue", "brokerKey2", "brokerValue2")),
       NodeRole.BROKER,
       ImmutableMap.of(),
       startTime
@@ -526,13 +541,13 @@ public class SystemSchemaTest extends CalciteTestBase
   public void testGetTableMap()
   {
     Assert.assertEquals(
-        ImmutableSet.of("segments", "servers", "server_segments", "tasks", "supervisors"),
+        ImmutableSet.of("segments", "servers", "server_segments", "tasks", "supervisors", "server_properties"),
         schema.getTableNames()
     );
 
     final Map<String, Table> tableMap = schema.getTableMap();
     Assert.assertEquals(
-        ImmutableSet.of("segments", "servers", "server_segments", "tasks", "supervisors"),
+        ImmutableSet.of("segments", "servers", "server_segments", "tasks", "supervisors", "server_properties"),
         tableMap.keySet()
     );
     final SystemSchema.SegmentsTable segmentsTable = (SystemSchema.SegmentsTable) schema.getTableMap().get("segments");
@@ -552,9 +567,15 @@ public class SystemSchemaTest extends CalciteTestBase
     final SystemSchema.ServersTable serversTable = (SystemSchema.ServersTable) schema.getTableMap().get("servers");
     final RelDataType serverRowType = serversTable.getRowType(new JavaTypeFactoryImpl());
     final List<RelDataTypeField> serverFields = serverRowType.getFieldList();
-    Assert.assertEquals(10, serverFields.size());
+    Assert.assertEquals(12, serverFields.size());
     Assert.assertEquals("server", serverFields.get(0).getName());
     Assert.assertEquals(SqlTypeName.VARCHAR, serverFields.get(0).getType().getSqlTypeName());
+
+    final SystemServerPropertiesTable propertiesTable = (SystemServerPropertiesTable) schema.getTableMap()
+                                                                                            .get("server_properties");
+    final RelDataType propertiesRowType = propertiesTable.getRowType(new JavaTypeFactoryImpl());
+    final List<RelDataTypeField> propertiesFields = propertiesRowType.getFieldList();
+    Assert.assertEquals(5, propertiesFields.size());
   }
 
   @Test
@@ -755,7 +776,8 @@ public class SystemSchemaTest extends CalciteTestBase
                                                          serverInventoryView,
                                                          authMapper,
                                                          overlordClient,
-                                                         coordinatorClient
+                                                         coordinatorClient,
+                                                         MAPPER
                                                      )
                                                      .createMock();
     EasyMock.replay(serversTable);
@@ -851,7 +873,9 @@ public class SystemSchemaTest extends CalciteTestBase
             0L,
             0L,
             nonLeader,
-            startTimeStr
+            startTimeStr,
+            version,
+            null
         )
     );
     expectedRows.add(
@@ -865,7 +889,9 @@ public class SystemSchemaTest extends CalciteTestBase
             0L,
             1000L,
             nonLeader,
-            startTimeStr
+            startTimeStr,
+            version,
+            null
         )
     );
     expectedRows.add(
@@ -879,7 +905,9 @@ public class SystemSchemaTest extends CalciteTestBase
             400L,
             1000L,
             nonLeader,
-            startTimeStr
+            startTimeStr,
+            version,
+            null
         )
     );
     expectedRows.add(
@@ -893,7 +921,9 @@ public class SystemSchemaTest extends CalciteTestBase
             0L,
             1000L,
             nonLeader,
-            startTimeStr
+            startTimeStr,
+            version,
+            null
         )
     );
     expectedRows.add(
@@ -907,7 +937,9 @@ public class SystemSchemaTest extends CalciteTestBase
             0L,
             1000L,
             nonLeader,
-            startTimeStr
+            startTimeStr,
+            version,
+            null
         )
     );
     expectedRows.add(createExpectedRow(
@@ -920,7 +952,9 @@ public class SystemSchemaTest extends CalciteTestBase
         0L,
         1000L,
         nonLeader,
-        startTimeStr
+        startTimeStr,
+        version,
+        null
     ));
     expectedRows.add(
         createExpectedRow(
@@ -933,7 +967,9 @@ public class SystemSchemaTest extends CalciteTestBase
             0L,
             0L,
             1L,
-            startTimeStr
+            startTimeStr,
+            version,
+            null
         )
     );
     expectedRows.add(
@@ -947,7 +983,9 @@ public class SystemSchemaTest extends CalciteTestBase
             0L,
             0L,
             nonLeader,
-            startTimeStr
+            startTimeStr,
+            version,
+            "{\"brokerKey\":\"brokerValue\",\"brokerKey2\":\"brokerValue2\"}"
         )
     );
     expectedRows.add(
@@ -961,7 +999,9 @@ public class SystemSchemaTest extends CalciteTestBase
             200L,
             1000L,
             nonLeader,
-            startTimeStr
+            startTimeStr,
+            version,
+            null
         )
     );
     expectedRows.add(
@@ -975,7 +1015,9 @@ public class SystemSchemaTest extends CalciteTestBase
             0L,
             0L,
             1L,
-            startTimeStr
+            startTimeStr,
+            version,
+            "{\"overlordKey\":\"overlordValue\"}"
         )
     );
     expectedRows.add(
@@ -989,7 +1031,9 @@ public class SystemSchemaTest extends CalciteTestBase
             0L,
             0L,
             0L,
-            startTimeStr
+            startTimeStr,
+            version,
+            null
         )
     );
     expectedRows.add(
@@ -1003,7 +1047,9 @@ public class SystemSchemaTest extends CalciteTestBase
             0L,
             0L,
             0L,
-            startTimeStr
+            startTimeStr,
+            version,
+            null
         )
     );
     expectedRows.add(
@@ -1017,7 +1063,9 @@ public class SystemSchemaTest extends CalciteTestBase
             0L,
             0L,
             nonLeader,
-            startTimeStr
+            startTimeStr,
+            version,
+            null
         )
     );
     expectedRows.add(
@@ -1031,7 +1079,9 @@ public class SystemSchemaTest extends CalciteTestBase
             0L,
             0L,
             nonLeader,
-            startTimeStr
+            startTimeStr,
+            version,
+            null
         )
     );
     expectedRows.add(createExpectedRow(
@@ -1044,7 +1094,9 @@ public class SystemSchemaTest extends CalciteTestBase
         0L,
         1000L,
         nonLeader,
-        startTimeStr
+        startTimeStr,
+        version,
+        null
     ));
     Assert.assertEquals(expectedRows.size(), rows.size());
     for (int i = 0; i < rows.size(); i++) {
@@ -1077,7 +1129,9 @@ public class SystemSchemaTest extends CalciteTestBase
       @Nullable Long currSize,
       @Nullable Long maxSize,
       @Nullable Long isLeader,
-      String startTime
+      String startTime,
+      String version,
+      String labels
   )
   {
     return new Object[]{
@@ -1090,7 +1144,9 @@ public class SystemSchemaTest extends CalciteTestBase
         currSize,
         maxSize,
         isLeader,
-        startTime
+        startTime,
+        version,
+        labels
     };
   }
 
@@ -1407,6 +1463,111 @@ public class SystemSchemaTest extends CalciteTestBase
     // verifyTypes(rows, SystemSchema.SUPERVISOR_SIGNATURE);
   }
 
+  @Test
+  public void testPropertiesTable()
+  {
+    SystemServerPropertiesTable propertiesTable = EasyMock.createMockBuilder(SystemServerPropertiesTable.class)
+                                                          .withConstructor(druidNodeDiscoveryProvider, authMapper, httpClient, MAPPER)
+                                                          .createMock();
+
+    EasyMock.replay(propertiesTable);
+
+    List<Object[]> expectedRows = new ArrayList<>();
+
+    mockNodeDiscovery(NodeRole.BROKER);
+    mockNodeDiscovery(NodeRole.ROUTER);
+    mockNodeDiscovery(NodeRole.HISTORICAL);
+    mockNodeDiscovery(NodeRole.OVERLORD);
+    mockNodeDiscovery(NodeRole.PEON);
+    mockNodeDiscovery(NodeRole.INDEXER);
+
+    mockNodeDiscovery(NodeRole.COORDINATOR, coordinator, coordinator2);
+    HttpResponse coordinatorHttpResponse = new DefaultHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.OK);
+    StringFullResponseHolder coordinatorResponseHolder = new StringFullResponseHolder(coordinatorHttpResponse, StandardCharsets.UTF_8);
+    String coordinatorJson = "{\"druid.test-key\": \"test-value\"}";
+    coordinatorResponseHolder.addChunk(coordinatorJson);
+    expectedRows.add(new Object[]{
+        coordinator.getDruidNode().getHostAndPortToUse(),
+        coordinator.getDruidNode().getServiceName(),
+        ImmutableList.of(coordinator.getNodeRole().getJsonName()).toString(),
+        "druid.test-key", "test-value"
+    });
+
+    HttpResponse coordinator2HttpResponse = new DefaultHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.OK);
+    StringFullResponseHolder coordinator2ResponseHolder = new StringFullResponseHolder(coordinator2HttpResponse, StandardCharsets.UTF_8);
+    String coordinator2Json = "{\"druid.test-key3\": \"test-value3\"}";
+    coordinator2ResponseHolder.addChunk(coordinator2Json);
+    expectedRows
+        .add(new Object[]{
+            coordinator2.getDruidNode().getHostAndPortToUse(),
+            coordinator2.getDruidNode().getServiceName(),
+            ImmutableList.of(coordinator2.getNodeRole().getJsonName()).toString(),
+            "druid.test-key3", "test-value3"
+        });
+
+    mockNodeDiscovery(NodeRole.MIDDLE_MANAGER, middleManager);
+    HttpResponse middleManagerHttpResponse = new DefaultHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.OK);
+    StringFullResponseHolder middleManagerResponseHolder = new StringFullResponseHolder(middleManagerHttpResponse, StandardCharsets.UTF_8);
+    String middleManagerJson = "{\n"
+                               + "\"druid.test-key\": \"test-value\",\n"
+                               + "\"druid.test-key2\": \"test-value2\"\n"
+                               + "}";
+    middleManagerResponseHolder.addChunk(middleManagerJson);
+    expectedRows
+        .add(new Object[]{
+            middleManager.getDruidNode().getHostAndPortToUse(),
+            middleManager.getDruidNode().getServiceName(),
+            ImmutableList.of(middleManager.getNodeRole().getJsonName()).toString(),
+            "druid.test-key", "test-value"
+        });
+    expectedRows
+        .add(new Object[]{
+            middleManager.getDruidNode().getHostAndPortToUse(),
+            middleManager.getDruidNode().getServiceName(),  
+            ImmutableList.of(middleManager.getNodeRole().getJsonName()).toString(),
+            "druid.test-key2", "test-value2"
+        });
+
+    Map<String, ListenableFuture<StringFullResponseHolder>> urlToResponse = ImmutableMap.of(
+        getStatusPropertiesUrl(coordinator), Futures.immediateFuture(coordinatorResponseHolder),
+        getStatusPropertiesUrl(coordinator2), Futures.immediateFuture(coordinator2ResponseHolder),
+        getStatusPropertiesUrl(middleManager), Futures.immediateFuture(middleManagerResponseHolder)
+    );
+
+    EasyMock.expect(
+        httpClient.go(
+            EasyMock.isA(Request.class),
+            EasyMock.isA(StringFullResponseHandler.class)
+        )
+    ).andAnswer(() -> {
+      Request req = (Request) EasyMock.getCurrentArguments()[0];
+      String url = req.getUrl().toString();
+
+      ListenableFuture<StringFullResponseHolder> future = urlToResponse.get(url);
+      if (future != null) {
+        return future;
+      }
+      return Futures.immediateFailedFuture(new AssertionError("Unexpected URL: " + url));
+    }).times(3);
+
+    EasyMock.replay(druidNodeDiscoveryProvider, responseHandler, httpClient);
+
+    DataContext dataContext = createDataContext(Users.SUPER);
+    final List<Object[]> rows = propertiesTable.scan(dataContext).toList();
+    expectedRows.sort((Object[] row1, Object[] row2) -> ((Comparable) row1[0]).compareTo(row2[0]));
+    rows.sort((Object[] row1, Object[] row2) -> ((Comparable) row1[0]).compareTo(row2[0]));
+    Assert.assertEquals(expectedRows.size(), rows.size());
+    for (int i = 0; i < expectedRows.size(); i++) {
+      Assert.assertArrayEquals(expectedRows.get(i), rows.get(i));
+    }
+
+  }
+
+  private String getStatusPropertiesUrl(DiscoveryDruidNode discoveryDruidNode)
+  {
+    return discoveryDruidNode.getDruidNode().getUriToUse().resolve("/status/properties").toString();
+  }
+
   /**
    * Creates a response holder that contains the given json.
    */
@@ -1542,6 +1703,15 @@ public class SystemSchemaTest extends CalciteTestBase
         }
       }
     }
+  }
+
+  private DruidNodeDiscovery mockNodeDiscovery(NodeRole nodeRole, DiscoveryDruidNode... discoveryDruidNodes)
+  {
+    final DruidNodeDiscovery druidNodeDiscovery = EasyMock.createMock(DruidNodeDiscovery.class);
+    EasyMock.expect(druidNodeDiscoveryProvider.getForNodeRole(nodeRole)).andReturn(druidNodeDiscovery).once();
+    EasyMock.expect(druidNodeDiscovery.getAllNodes()).andReturn(ImmutableList.copyOf(discoveryDruidNodes)).once();
+    EasyMock.replay(druidNodeDiscovery);
+    return druidNodeDiscovery;
   }
 
   /**

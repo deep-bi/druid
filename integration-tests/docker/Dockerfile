@@ -13,8 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-ARG JDK_VERSION=17-slim-bullseye
-FROM openjdk:$JDK_VERSION as druidbase
+ARG JDK_VERSION=21-jre-jammy
+FROM eclipse-temurin:$JDK_VERSION AS druidbase
 
 # Bundle everything into one script so cleanup can reduce image size.
 # Otherwise docker's layered images mean that things are not actually deleted.
@@ -23,8 +23,9 @@ COPY base-setup.sh /root/base-setup.sh
 ARG KAFKA_VERSION
 # ZooKeeper version to install in the base image
 # This is passed in by maven at build time to align with the client version we depend on in the pom file
+# Using archive.apache.org instead of downloads.apache.org to avoid build failures, see https://github.com/apache/druid/pull/18548
 ARG ZK_VERSION
-ARG APACHE_ARCHIVE_MIRROR_HOST=https://downloads.apache.org
+ARG APACHE_ARCHIVE_MIRROR_HOST=https://archive.apache.org/dist
 RUN APACHE_ARCHIVE_MIRROR_HOST=${APACHE_ARCHIVE_MIRROR_HOST} /root/base-setup.sh && rm -f /root/base-setup.sh
 
 FROM druidbase

@@ -236,6 +236,9 @@ Servers table lists all discovered servers in the cluster.
 |max_size|BIGINT|Max size in bytes this server recommends to assign to segments see [druid.server.maxSize](../configuration/index.md#historical-general-configuration). Only valid for HISTORICAL type, for other types it's 0|
 |is_leader|BIGINT|1 if the server is currently the 'leader' (for services which have the concept of leadership), otherwise 0 if the server is not the leader, or null if the server type does not have the concept of leadership|
 |start_time|STRING|Timestamp in ISO8601 format when the server was announced in the cluster|
+|version|VARCHAR|Druid version running on the server|
+|labels|VARCHAR|Labels for the server configured using the property [`druid.labels`](../configuration/index.md)|
+
 To retrieve information about all servers, use the query:
 
 ```sql
@@ -312,4 +315,22 @@ For example, to retrieve supervisor tasks information filtered by health status,
 
 ```sql
 SELECT * FROM sys.supervisors WHERE healthy=0;
+```
+
+### SERVER_PROPERTIES table
+
+The `server_properties` table exposes the runtime properties configured on for each Druid server. Each row represents a single property key-value pair associated with a specific server.
+
+|Column|Type|Notes|
+|------|-----|-----|
+|server|VARCHAR|Host and port of the server, in the form `host:port`|
+|service_name|VARCHAR|Service name of the server, as defined by `druid.service`|
+|node_roles|VARCHAR|Comma-separated list of roles that the server performs. For example, `[coordinator,overlord]` if the server functions as both a Coordinator and an Overlord.|
+|property|VARCHAR|Name of the property|
+|value|VARCHAR|Value of the property|
+
+For example, to retrieve properties for a specific server, use the query
+
+```sql
+SELECT * FROM sys.server_properties WHERE server='192.168.1.1:8081'
 ```

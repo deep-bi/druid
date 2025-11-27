@@ -109,6 +109,7 @@ public class KafkaClusterMetricsTest extends EmbeddedClusterTestBase
     cluster.addExtension(KafkaIndexTaskModule.class)
            .addExtension(KafkaEmitterModule.class)
            .addExtension(LatchableEmitterModule.class)
+           .useDefaultTimeoutForLatchableEmitter(60)
            .addCommonProperty("druid.emitter", "composing")
            .addCommonProperty("druid.emitter.composing.emitters", "[\"latching\",\"kafka\"]")
            .addCommonProperty("druid.monitoring.emissionPeriod", "PT0.1s")
@@ -236,7 +237,7 @@ public class KafkaClusterMetricsTest extends EmbeddedClusterTestBase
         event -> event.hasMetricName("task/run/time")
                       .hasDimension(DruidMetrics.TASK_TYPE, "compact")
                       .hasDimension(DruidMetrics.TASK_STATUS, "SUCCESS"),
-        agg -> agg.hasCountAtLeast(2)
+        agg -> agg.hasCountAtLeast(10)
     );
 
     // Verify that some segments have been upgraded due to Concurrent Append and Replace

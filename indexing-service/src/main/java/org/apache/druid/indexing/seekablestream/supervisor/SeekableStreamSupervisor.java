@@ -472,6 +472,11 @@ public abstract class SeekableStreamSupervisor<PartitionIdType, SequenceOffsetTy
                     supervisorId,
                     dataSource
           );
+          final Integer desiredTaskCount = computeDesiredTaskCount.call();
+          ServiceMetricEvent.Builder event = ServiceMetricEvent.builder()
+                                                               .setDimension(DruidMetrics.SUPERVISOR_ID, supervisorId)
+                                                               .setDimension(DruidMetrics.DATASOURCE, dataSource)
+                                                               .setDimension(DruidMetrics.STREAM, getIoConfig().getStream());
           for (CopyOnWriteArrayList<TaskGroup> list : pendingCompletionTaskGroups.values()) {
             if (!list.isEmpty()) {
               log.info(
@@ -480,14 +485,16 @@ public abstract class SeekableStreamSupervisor<PartitionIdType, SequenceOffsetTy
                   dataSource,
                   list
               );
+              if (desiredTaskCount > 0) {
+                emitter.emit(event.setDimension(
+                                      AUTOSCALER_SKIP_REASON_DIMENSION,
+                                      "There are tasks pending completion"
+                                  )
+                                  .setMetric(AUTOSCALER_REQUIRED_TASKS_METRIC, desiredTaskCount));
+              }
               return;
             }
           }
-          final Integer desiredTaskCount = computeDesiredTaskCount.call();
-          ServiceMetricEvent.Builder event = ServiceMetricEvent.builder()
-                                                               .setDimension(DruidMetrics.SUPERVISOR_ID, supervisorId)
-                                                               .setDimension(DruidMetrics.DATASOURCE, dataSource)
-              .setDimension(DruidMetrics.STREAM, getIoConfig().getStream());
           if (nowTime - dynamicTriggerLastRunTime < autoScalerConfig.getMinTriggerScaleActionFrequencyMillis()) {
             log.info(
                 "DynamicAllocationTasksNotice submitted again in [%d] millis, minTriggerDynamicFrequency is [%s] for supervisor[%s] for dataSource[%s], skipping it! desired task count is [%s], active task count is [%s]",
@@ -601,13 +608,19 @@ public abstract class SeekableStreamSupervisor<PartitionIdType, SequenceOffsetTy
     }
   }
 
+  /**
+   * Clears allocation information including active task groups, partition groups, partition offsets, and partition IDs.
+   * <p>
+   * Note: Does not clear {@link #pendingCompletionTaskGroups} so that the supervisor remembers that these
+   * tasks are publishing and auto-scaler does not repeatedly attempt a scale down until these tasks
+   * complete. If this is cleared, the next {@link #discoverTasks()} might add these tasks to
+   * {@link #activelyReadingTaskGroups}.
+   */
   private void clearAllocationInfo()
   {
     activelyReadingTaskGroups.clear();
     partitionGroups.clear();
     partitionOffsets.clear();
-
-    pendingCompletionTaskGroups.clear();
     partitionIds.clear();
   }
 
@@ -1731,7 +1744,7 @@ public abstract class SeekableStreamSupervisor<PartitionIdType, SequenceOffsetTy
       checkIfStreamInactiveAndTurnSupervisorIdle();
 
       // If supervisor is already stopping, don't contend for stateChangeLock since the block can be skipped
-      if (stateManager.getSupervisorState().getBasicState().equals(SupervisorStateManager.BasicState.STOPPING)) {
+      if (isStopping()) {
         logDebugReport();
         return;
       }
@@ -1739,7 +1752,7 @@ public abstract class SeekableStreamSupervisor<PartitionIdType, SequenceOffsetTy
       synchronized (stateChangeLock) {
         // if supervisor is not suspended, ensure required tasks are running
         // if suspended, ensure tasks have been requested to gracefully stop
-        if (stateManager.getSupervisorState().getBasicState().equals(SupervisorStateManager.BasicState.STOPPING)) {
+        if (isStopping()) {
           // if we're already terminating, don't do anything here, the terminate already handles shutdown
           log.debug("Supervisor[%s] for datasource[%s] is already stopping.", supervisorId, dataSource);
         } else if (stateManager.isIdle()) {
@@ -2011,7 +2024,16 @@ public abstract class SeekableStreamSupervisor<PartitionIdType, SequenceOffsetTy
   {
     Optional<TaskQueue> taskQueue = taskMaster.getTaskQueue();
     if (taskQueue.isPresent()) {
-      taskQueue.get().shutdown(id, reasonFormat, args);
+      if (isStopping()) {
+        log.debug(
+            "Not shutting down task[%s] because the supervisor[%s] has been stopped. Reason was[%s]",
+            id,
+            supervisorId,
+            StringUtils.format(reasonFormat, args)
+        );
+      } else {
+        taskQueue.get().shutdown(id, reasonFormat, args);
+      }
     } else {
       log.error("Failed to get task queue because I'm not the leader!");
     }
@@ -2021,7 +2043,16 @@ public abstract class SeekableStreamSupervisor<PartitionIdType, SequenceOffsetTy
   {
     Optional<TaskQueue> taskQueue = taskMaster.getTaskQueue();
     if (taskQueue.isPresent()) {
-      taskQueue.get().shutdownWithSuccess(id, reasonFormat, args);
+      if (isStopping()) {
+        log.debug(
+            "Not shutting down task[%s] because the supervisor[%s] has been stopped. Reason was[%s]",
+            id,
+            supervisorId,
+            StringUtils.format(reasonFormat, args)
+        );
+      } else {
+        taskQueue.get().shutdownWithSuccess(id, reasonFormat, args);
+      }
     } else {
       log.error("Failed to get task queue because I'm not the leader!");
     }
@@ -3275,8 +3306,8 @@ public abstract class SeekableStreamSupervisor<PartitionIdType, SequenceOffsetTy
       // Ignore return value; but kill tasks that failed to return anything at all.
       if (results.get(i).isError()) {
         String taskId = futureTaskIds.get(i);
-        log.noStackTrace().warn(results.get(i).error(), "Task [%s] failed to return start time, killing task", taskId);
-        killTask(taskId, "Task [%s] failed to return start time, killing task", taskId);
+        log.noStackTrace().warn(results.get(i).error(), "Killing task[%s] as it failed to return start time.", taskId);
+        killTask(taskId, "Failed to return start time: %s", results.get(i).error().getMessage());
       }
     }
   }
@@ -4547,6 +4578,14 @@ public abstract class SeekableStreamSupervisor<PartitionIdType, SequenceOffsetTy
     finally {
       recordSupplierLock.unlock();
     }
+  }
+
+  /**
+   * Whether this supervisor is in a {@link SupervisorStateManager.BasicState#STOPPING} state.
+   */
+  private boolean isStopping()
+  {
+    return stateManager.getSupervisorState().getBasicState().equals(SupervisorStateManager.BasicState.STOPPING);
   }
 
   /**

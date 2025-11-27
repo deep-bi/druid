@@ -41,8 +41,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Use JDK 21.0.4 to work around https://github.com/apache/druid/issues/17429
-        java: [ '11', '17', '21.0.4' ]
+        java: [ '17', '21' ]
     runs-on: ubuntu-latest
     steps:
       - name: checkout branch
@@ -198,7 +197,7 @@ jobs:
 
       - name: Tar druid logs
         if: ${{ failure() && steps.web-console-test.conclusion == 'failure' }}
-        run: tar cvzf ./druid-logs.tgz -C ./distribution/target/apache-druid-*-SNAPSHOT/ log
+        run: tar cvzf ./druid-logs.tgz -C ./distribution/target/apache-druid-*-SNAPSHOT/ log -C ./var druid/indexing-logs
 
       - name: Upload druid logs to GitHub
         if: ${{ failure() && steps.web-console-test.conclusion == 'failure' }}

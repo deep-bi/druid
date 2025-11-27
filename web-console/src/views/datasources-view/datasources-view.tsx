@@ -21,7 +21,6 @@ import { IconNames } from '@blueprintjs/icons';
 import { sum } from 'd3-array';
 import { SqlQuery, T } from 'druid-query-toolkit';
 import React from 'react';
-import type { Filter } from 'react-table';
 import ReactTable from 'react-table';
 
 import {
@@ -51,6 +50,7 @@ import type {
   CompactionConfigs,
   CompactionInfo,
   CompactionStatus,
+  ConsoleViewId,
   QueryWithContext,
   Rule,
 } from '../../druid-models';
@@ -94,6 +94,7 @@ import {
   twoLines,
 } from '../../utils';
 import type { BasicAction } from '../../utils/basic-action';
+import { TableFilter, TableFilters } from '../../utils/table-filters';
 
 import './datasources-view.scss';
 
@@ -304,16 +305,10 @@ function normalizeTaskType(taskType: string): string {
 }
 
 export interface DatasourcesViewProps {
-  filters: Filter[];
-  onFiltersChange(filters: Filter[]): void;
+  filters: TableFilters;
+  onFiltersChange(filters: TableFilters): void;
   goToQuery(queryWithContext: QueryWithContext): void;
-  goToTasks(datasource?: string): void;
-  goToSegments(options: {
-    start?: Date;
-    end?: Date;
-    datasource?: string;
-    realtime?: boolean;
-  }): void;
+  goToView(tab: ConsoleViewId, filters?: TableFilters): void;
   capabilities: Capabilities;
 }
 
@@ -439,21 +434,21 @@ GROUP BY 1, 2`;
     this.datasourceQueryManager = new QueryManager<DatasourceQuery, DatasourcesAndDefaultRules>({
       processQuery: async (
         { capabilities, visibleColumns, showUnused },
-        cancelToken,
+        signal,
         setIntermediateQuery,
       ) => {
         let datasources: DatasourceQueryResultRow[];
         if (capabilities.hasSql()) {
           const query = DatasourcesView.query(visibleColumns);
           setIntermediateQuery(query);
-          datasources = await queryDruidSql({ query }, cancelToken);
+          datasources = await queryDruidSql({ query }, signal);
         } else if (capabilities.hasCoordinatorAccess()) {
           const datasourcesResp = await getApiArray(
             '/druid/coordinator/v1/datasources?simple',
-            cancelToken,
+            signal,
           );
           const loadstatusResp = await Api.instance.get('/druid/coordinator/v1/loadstatus?simple', {
-            cancelToken,
+            signal,
           });
           const loadstatus = loadstatusResp.data;
           datasources = datasourcesResp.map((d: any): DatasourceQueryResultRow => {
@@ -493,13 +488,13 @@ GROUP BY 1, 2`;
 
         if (visibleColumns.shown('Running tasks')) {
           if (capabilities.hasSql()) {
-            auxiliaryQueries.push(async (datasourcesAndDefaultRules, cancelToken) => {
+            auxiliaryQueries.push(async (datasourcesAndDefaultRules, signal) => {
               try {
                 const runningTasks = await queryDruidSql<RunningTaskRow>(
                   {
                     query: DatasourcesView.RUNNING_TASK_SQL,
                   },
-                  cancelToken,
+                  signal,
                 );
 
                 const runningTasksByDatasource = groupByAsMap(
@@ -530,12 +525,9 @@ GROUP BY 1, 2`;
               }
             });
           } else if (capabilities.hasOverlordAccess()) {
-            auxiliaryQueries.push(async (datasourcesAndDefaultRules, cancelToken) => {
+            auxiliaryQueries.push(async (datasourcesAndDefaultRules, signal) => {
               try {
-                const taskList = await getApiArray(
-                  `/druid/indexer/v1/tasks?state=running`,
-                  cancelToken,
-                );
+                const taskList = await getApiArray(`/druid/indexer/v1/tasks?state=running`, signal);
 
                 const runningTasksByDatasource = groupByAsMap(
                   taskList,
@@ -588,11 +580,11 @@ GROUP BY 1, 2`;
           }
 
           // Rules
-          auxiliaryQueries.push(async (datasourcesAndDefaultRules, cancelToken) => {
+          auxiliaryQueries.push(async (datasourcesAndDefaultRules, signal) => {
             try {
               const rules = (
                 await Api.instance.get<Record<string, Rule[]>>('/druid/coordinator/v1/rules', {
-                  cancelToken,
+                  signal,
                 })
               ).data;
 
@@ -614,12 +606,12 @@ GROUP BY 1, 2`;
           });
 
           // Compaction
-          auxiliaryQueries.push(async (datasourcesAndDefaultRules, cancelToken) => {
+          auxiliaryQueries.push(async (datasourcesAndDefaultRules, signal) => {
             try {
               const compactionConfigsAndMore = (
                 await Api.instance.get<CompactionConfigs>(
                   '/druid/indexer/v1/compaction/config/datasources',
-                  { cancelToken },
+                  { signal },
                 )
               ).data;
               const compactionConfigs = lookupBy(
@@ -629,7 +621,7 @@ GROUP BY 1, 2`;
 
               const compactionStatusesResp = await Api.instance.get<{
                 latestStatus: CompactionStatus[];
-              }>('/druid/indexer/v1/compaction/status/datasources', { cancelToken });
+              }>('/druid/indexer/v1/compaction/status/datasources', { signal });
               const compactionStatuses = lookupBy(
                 compactionStatusesResp.data.latestStatus || [],
                 c => c.dataSource,
@@ -1005,7 +997,7 @@ GROUP BY 1, 2`;
     rules: Rule[] | undefined,
     compactionInfo: CompactionInfo | undefined,
   ): BasicAction[] {
-    const { goToQuery, goToSegments, capabilities } = this.props;
+    const { goToQuery, goToView, capabilities } = this.props;
 
     if (unused) {
       if (!capabilities.hasOverlordAccess()) return [];
@@ -1048,7 +1040,7 @@ GROUP BY 1, 2`;
           icon: getConsoleViewIcon('segments'),
           title: 'Go to segments',
           onAction: () => {
-            goToSegments({ datasource });
+            goToView('segments', TableFilters.eq({ datasource }));
           },
         },
         capabilities.hasCoordinatorAccess()
@@ -1177,7 +1169,7 @@ GROUP BY 1, 2`;
   }
 
   private renderDatasourcesTable() {
-    const { goToTasks, capabilities, filters, onFiltersChange } = this.props;
+    const { goToView, capabilities, filters, onFiltersChange } = this.props;
     const { datasourcesAndDefaultRulesState, showUnused, visibleColumns, showSegmentTimeline } =
       this.state;
 
@@ -1222,8 +1214,8 @@ GROUP BY 1, 2`;
             : '')
         }
         filterable
-        filtered={filters}
-        onFilteredChange={onFiltersChange}
+        filtered={filters.toFilters()}
+        onFilteredChange={filters => onFiltersChange(TableFilters.fromFilters(filters))}
         defaultPageSize={STANDARD_TABLE_PAGE_SIZE}
         pageSizeOptions={STANDARD_TABLE_PAGE_SIZE_OPTIONS}
         showPagination={datasources.length > STANDARD_TABLE_PAGE_SIZE}
@@ -1367,7 +1359,9 @@ GROUP BY 1, 2`;
               if (!runningTasks) return;
               return (
                 <TableClickableCell
-                  onClick={() => goToTasks(original.datasource)}
+                  onClick={() =>
+                    goToView('tasks', TableFilters.eq({ datasource: original.datasource }))
+                  }
                   hoverIcon={IconNames.ARROW_TOP_RIGHT}
                   tooltip="Go to tasks"
                 >
@@ -1722,7 +1716,7 @@ GROUP BY 1, 2`;
   }
 
   render() {
-    const { capabilities, filters, goToSegments } = this.props;
+    const { capabilities, filters, goToView } = this.props;
     const {
       showUnused,
       visibleColumns,
@@ -1754,9 +1748,9 @@ GROUP BY 1, 2`;
                   ? undefined
                   : {
                       capabilities,
-                      datasource: findMap(filters, filter =>
-                        filter.id === 'datasource' && /^=[^=|]+$/.exec(String(filter.value))
-                          ? filter.value.slice(1)
+                      datasource: findMap(filters.toArray(), filter =>
+                        filter.key === 'datasource' && filter.mode === '='
+                          ? filter.value
                           : undefined,
                       ),
                     },
@@ -1794,7 +1788,28 @@ GROUP BY 1, 2`;
                     text="Open in segments view"
                     small
                     rightIcon={IconNames.ARROW_TOP_RIGHT}
-                    onClick={() => goToSegments({ start, end, datasource, realtime })}
+                    onClick={() => {
+                      let filters = TableFilters.empty();
+                      if (datasource) {
+                        filters = filters.addOrUpdate(
+                          new TableFilter('datasource', '=', datasource),
+                        );
+                      }
+                      if (realtime !== undefined) {
+                        filters = filters.addOrUpdate(
+                          new TableFilter('is_realtime', '=', String(realtime ? 1 : 0)),
+                        );
+                      }
+                      if (start && end) {
+                        filters = filters.addOrUpdate(
+                          new TableFilter('start', '>=', start.toISOString()),
+                        );
+                        filters = filters.addOrUpdate(
+                          new TableFilter('end', '<=', end.toISOString()),
+                        );
+                      }
+                      goToView('segments', filters);
+                    }}
                   />
                 );
               }}
