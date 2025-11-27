@@ -1,57 +1,14 @@
+# placeholder so that release workflow can be triggered
 name: "Deepbi Release Workflow"
 
 on:
   workflow_dispatch:
 
 jobs:
-  build-and-release:
+  disabled-on-master:
     runs-on: ubuntu-latest
-    permissions: write-all
-
     steps:
-      - name: Release Branch Name Validation
+      - name: Disabled on master
         run: |
-          if [[ ! "$GITHUB_REF" =~ ^refs/heads/deep/.*$ ]]; then
-          echo "Release workflow only valid for deep/x branches"
+          echo "::error::This workflow is a placeholder on master. Use the deep/* release branches."
           exit 1
-          fi
-
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up JDK 11
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '11'
-          cache: 'maven'
-
-      - name: Build Druid
-        run: mvn clean install -Papache-release,dist -DskipTests -Dgpg.skip=true -Dcheckstyle.skip -Ddependency-check.skip=true -B
-
-      - name: Get version from pom.xml
-        id: get-version
-        run: |
-          version=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
-          echo "Project version: $version"
-          echo "content=$version" >> $GITHUB_OUTPUT
-
-      - name: List Artifacts
-        id: list-artifacts
-        run: |
-          echo "Listing all files in distribution/target:"
-          echo Version: ${{ steps.get-version.outputs.content }}
-
-      - name: Create Release
-        id: create_release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.get-version.outputs.content }}
-          name: "Release ${{ steps.get-version.outputs.content }}"
-          draft: true
-          prerelease: true
-          files: |
-            distribution/target/apache-druid-${{ steps.get-version.outputs.content }}-bin.tar.gz
-            distribution/target/apache-druid-${{ steps.get-version.outputs.content }}-bin.tar.gz.sha512
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
