@@ -71,7 +71,7 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.get-version.outputs.content }}
+          tag_name: "v${{ steps.get-version.outputs.content }}"
           name: "Release ${{ steps.get-version.outputs.content }}"
           draft: true
           prerelease: true
