@@ -67,6 +67,9 @@ public class ExpressionVirtualColumn implements VirtualColumn
   private final Supplier<byte[]> cacheKey;
   private final boolean enableBitmapIndexes;
 
+  /**
+   * Constructor for deserialization.
+   */
   @JsonCreator
   public ExpressionVirtualColumn(
       @JsonProperty("name") String name,
@@ -88,14 +91,11 @@ public class ExpressionVirtualColumn implements VirtualColumn
     this(name, parsedExpression.toString(), outputType, () -> parsedExpression, true);
   }
 
-  /**
-   * Constructor for deserialization.
-   */
   public ExpressionVirtualColumn(
       String name,
       String expression,
       @Nullable ColumnType outputType,
-      @JacksonInject ExprMacroTable macroTable
+      ExprMacroTable macroTable
   )
   {
     this(name, expression, outputType, Parser.lazyParse(expression, macroTable), true);
