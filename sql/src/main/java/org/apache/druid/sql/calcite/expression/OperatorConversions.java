@@ -85,7 +85,8 @@ public class OperatorConversions
         druidExpressions -> DruidExpression.ofFunctionCall(
             Calcites.getColumnTypeForRelDataType(rexNode.getType()),
             functionName,
-            druidExpressions
+            druidExpressions,
+            plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex()
         )
     );
   }
@@ -107,7 +108,8 @@ public class OperatorConversions
             Calcites.getColumnTypeForRelDataType(rexNode.getType()),
             simpleExtractionFunction == null ? null : simpleExtractionFunction.apply(druidExpressions),
             DruidExpression.functionCall(functionName),
-            druidExpressions
+            druidExpressions,
+            plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex()
         )
     );
   }
@@ -127,7 +129,8 @@ public class OperatorConversions
         (operands) -> DruidExpression.ofExpression(
             Calcites.getColumnTypeForRelDataType(rexNode.getType()),
             expressionGenerator,
-            operands
+            operands,
+            plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex()
         )
     );
   }

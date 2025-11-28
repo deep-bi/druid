@@ -33,7 +33,7 @@ import org.apache.druid.sql.calcite.planner.PlannerContext;
 
 public class PositionOperatorConversion implements SqlOperatorConversion
 {
-  private static final DruidExpression ZERO = DruidExpression.ofLiteral(ColumnType.LONG, "0");
+  private static final DruidExpression ZERO = DruidExpression.ofLiteral(ColumnType.LONG, "0", true);
 
   @Override
   public SqlOperator calciteOperator()
@@ -48,6 +48,7 @@ public class PositionOperatorConversion implements SqlOperatorConversion
       final RexNode rexNode
   )
   {
+    final boolean calculateExpressionBitmapIndex = plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex();
     return OperatorConversions.convertCall(
         plannerContext,
         rowSignature,
@@ -60,7 +61,8 @@ public class PositionOperatorConversion implements SqlOperatorConversion
                 fromIndexExpression = DruidExpression.ofExpression(
                     ColumnType.LONG,
                     (_args) -> StringUtils.format("(%s - 1)", _args.get(2).getExpression()),
-                    args
+                    args,
+                    calculateExpressionBitmapIndex
                 );
               } else {
                 fromIndexExpression = ZERO;
@@ -73,7 +75,8 @@ public class PositionOperatorConversion implements SqlOperatorConversion
                   )
               );
             },
-            druidExpressions
+            druidExpressions,
+            calculateExpressionBitmapIndex
         )
     );
   }

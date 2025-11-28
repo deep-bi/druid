@@ -475,6 +475,7 @@ public class MultiValueStringOperatorConversions
                          .append(")");
         return expressionBuilder.toString();
       };
+      final boolean calculateExpressionBitmapIndex = plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex();
 
       Expr expr = plannerContext.parseExpression(druidExpressions.get(1).getExpression());
       if (druidExpressions.get(0).isSimpleExtraction() && expr.isLiteral()) {
@@ -496,7 +497,7 @@ public class MultiValueStringOperatorConversions
                 druidExpressions.get(0).getSimpleExtraction().toDimensionSpec(druidExpressions.get(0).getDirectColumn(), outputType),
                 literals,
                 isAllowList()
-            )
+            ), calculateExpressionBitmapIndex
         );
 
         // if the join expression VC registry is present, it means that this expression is part of a join condition
@@ -506,13 +507,13 @@ public class MultiValueStringOperatorConversions
               druidExpression,
               ColumnType.STRING
           );
-          return DruidExpression.ofColumn(ColumnType.STRING, virtualColumnName);
+          return DruidExpression.ofColumn(ColumnType.STRING, virtualColumnName, calculateExpressionBitmapIndex);
         }
 
         return druidExpression;
       }
 
-      return DruidExpression.ofExpression(ColumnType.STRING, builder, druidExpressions);
+      return DruidExpression.ofExpression(ColumnType.STRING, builder, druidExpressions, calculateExpressionBitmapIndex);
     }
   }
 

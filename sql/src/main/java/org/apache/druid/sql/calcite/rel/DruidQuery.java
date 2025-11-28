@@ -214,7 +214,8 @@ public class DruidQuery
       virtualColumnRegistry = VirtualColumnRegistry.create(
           sourceRowSignature,
           plannerContext.getExpressionParser(),
-          plannerContext.getPlannerConfig().isForceExpressionVirtualColumns()
+          plannerContext.getPlannerConfig().isForceExpressionVirtualColumns(),
+          plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex()
       );
     }
 
@@ -721,7 +722,7 @@ public class DruidQuery
         );
         specialized.add(name);
         // replace with an identifier expression of the new virtual column name
-        return DruidExpression.ofColumn(expression.getDruidType(), name);
+        return DruidExpression.ofColumn(expression.getDruidType(), name, plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex());
       } else {
         // do nothing
         return expression;

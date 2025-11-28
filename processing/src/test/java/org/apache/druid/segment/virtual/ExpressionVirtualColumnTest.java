@@ -21,12 +21,14 @@ package org.apache.druid.segment.virtual;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import org.apache.druid.collections.bitmap.RoaringBitmapFactory;
 import org.apache.druid.common.config.NullHandling;
 import org.apache.druid.data.input.InputRow;
 import org.apache.druid.data.input.MapBasedInputRow;
 import org.apache.druid.data.input.Row;
 import org.apache.druid.java.util.common.DateTimes;
 import org.apache.druid.math.expr.ExprEval;
+import org.apache.druid.math.expr.ExpressionPredicateIndexSupplier;
 import org.apache.druid.math.expr.Parser;
 import org.apache.druid.query.dimension.DefaultDimensionSpec;
 import org.apache.druid.query.dimension.DimensionSpec;
@@ -41,6 +43,8 @@ import org.apache.druid.query.monomorphicprocessing.RuntimeShapeInspector;
 import org.apache.druid.segment.BaseFloatColumnValueSelector;
 import org.apache.druid.segment.BaseLongColumnValueSelector;
 import org.apache.druid.segment.BaseObjectColumnValueSelector;
+import org.apache.druid.segment.ColumnSelector;
+import org.apache.druid.segment.ColumnSelectorColumnIndexSelector;
 import org.apache.druid.segment.ColumnSelectorFactory;
 import org.apache.druid.segment.ColumnValueSelector;
 import org.apache.druid.segment.ConstantDimensionSelector;
@@ -49,13 +53,20 @@ import org.apache.druid.segment.DimensionSelector;
 import org.apache.druid.segment.IdLookup;
 import org.apache.druid.segment.RowAdapters;
 import org.apache.druid.segment.RowBasedColumnSelectorFactory;
+import org.apache.druid.segment.VirtualColumns;
 import org.apache.druid.segment.column.ColumnCapabilities;
 import org.apache.druid.segment.column.ColumnCapabilitiesImpl;
+import org.apache.druid.segment.column.ColumnHolder;
+import org.apache.druid.segment.column.ColumnIndexSupplier;
 import org.apache.druid.segment.column.ColumnType;
 import org.apache.druid.segment.column.RowSignature;
 import org.apache.druid.segment.column.ValueType;
 import org.apache.druid.segment.data.IndexedInts;
+import org.apache.druid.segment.index.semantic.DictionaryEncodedStringValueIndex;
+import org.apache.druid.segment.index.semantic.DictionaryEncodedValueIndex;
+import org.apache.druid.segment.serde.NoIndexesColumnIndexSupplier;
 import org.apache.druid.testing.InitializedNullHandlingTest;
+import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -877,5 +888,53 @@ public class ExpressionVirtualColumnTest extends InitializedNullHandlingTest
 
     Assert.assertTrue(multiConstantSelector instanceof ConstantMultiValueDimensionSelector);
     Assert.assertEquals(ImmutableList.of("a", "b", "c"), multiConstantSelector.getObject());
+  }
+
+  @Test
+  public void testConstructorPopulatesBitmapFlag()
+  {
+    ExpressionVirtualColumn noIndex = new ExpressionVirtualColumn(
+        "noIndex",
+        Parser.parse("cast(x, 'DOUBLE')", TestExprMacroTable.INSTANCE),
+        ColumnType.DOUBLE,
+        false
+    );
+
+    ExpressionVirtualColumn withIndex = new ExpressionVirtualColumn(
+        "withIndex",
+        Parser.parse("cast(x, 'DOUBLE')", TestExprMacroTable.INSTANCE),
+        ColumnType.DOUBLE,
+        true
+    );
+
+    ColumnSelector selector = EasyMock.createMock(ColumnSelector.class);
+    ColumnHolder holder = EasyMock.createMock(ColumnHolder.class);
+    ColumnIndexSupplier indexSupplier = EasyMock.createMock(ColumnIndexSupplier.class);
+    DictionaryEncodedStringValueIndex index = EasyMock.createMock(DictionaryEncodedStringValueIndex.class);
+
+    EasyMock.expect(selector.getColumnHolder(EasyMock.anyString())).andReturn(holder).atLeastOnce();
+    EasyMock.expect(holder.getIndexSupplier()).andReturn(indexSupplier).atLeastOnce();
+    EasyMock.expect(indexSupplier.as(DictionaryEncodedValueIndex.class)).andReturn(index).atLeastOnce();
+    EasyMock.expect(selector.getColumnCapabilities("x"))
+            .andReturn(new ColumnCapabilitiesImpl().setType(ColumnType.LONG)
+                                                   .setHasMultipleValues(false)
+            ).anyTimes();
+    EasyMock.replay(selector, holder, indexSupplier, index);
+
+    ColumnSelectorColumnIndexSelector columnIndexSelector = new ColumnSelectorColumnIndexSelector(
+        RoaringBitmapFactory.INSTANCE,
+        VirtualColumns.EMPTY,
+        selector
+    );
+
+    Assert.assertTrue(
+        noIndex.getIndexSupplier("noIndex", columnIndexSelector) instanceof NoIndexesColumnIndexSupplier
+    );
+
+    Assert.assertTrue(
+        withIndex.getIndexSupplier("withIndex", columnIndexSelector) instanceof ExpressionPredicateIndexSupplier
+    );
+
+    EasyMock.verify(selector, holder, indexSupplier, index);
   }
 }

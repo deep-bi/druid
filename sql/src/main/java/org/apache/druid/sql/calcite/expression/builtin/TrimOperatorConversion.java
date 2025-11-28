@@ -40,6 +40,7 @@ public class TrimOperatorConversion implements SqlOperatorConversion
 {
   @Nullable
   public static DruidExpression makeTrimExpression(
+      PlannerContext plannerContext,
       final SqlTrimFunction.Flag trimStyle,
       final DruidExpression stringExpression,
       final DruidExpression charsExpression,
@@ -64,7 +65,7 @@ public class TrimOperatorConversion implements SqlOperatorConversion
     }
 
     // Druid version of trim is multi-function (ltrim/rtrim/trim) and the other two args are swapped.
-    return DruidExpression.ofFunctionCall(druidType, functionName, ImmutableList.of(stringExpression, charsExpression));
+    return DruidExpression.ofFunctionCall(druidType, functionName, ImmutableList.of(stringExpression, charsExpression), plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex());
   }
 
   @Override
@@ -103,6 +104,7 @@ public class TrimOperatorConversion implements SqlOperatorConversion
     }
 
     return makeTrimExpression(
+        plannerContext,
         trimStyle,
         stringExpression,
         charsExpression,
