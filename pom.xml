@@ -270,6 +270,11 @@
                <enabled>false</enabled>
             </snapshots>
         </repository>
+
+        <repository>
+            <id>deep-bi-github-artifact</id>
+            <url>https://raw.githubusercontent.com/deep-bi/maven-repo/main</url>
+        </repository>
     </repositories>
 
     <pluginRepositories>
