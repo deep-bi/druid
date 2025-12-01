@@ -17,7 +17,7 @@
 set -e
 set -x
 
-export INSTALL_K3S_VERSION=v1.21.14+k3s1
+export INSTALL_K3S_VERSION=v1.33.2+k3s1
 export KUBECONFIG=$HOME/.kube/config
 
 # Launch K8S cluster
