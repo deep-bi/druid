@@ -239,8 +239,9 @@ public class Expressions
   )
   {
     final SqlKind kind = rexNode.getKind();
+    final boolean calculateExpressionBitmapIndex = plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex();
     if (kind == SqlKind.INPUT_REF) {
-      return inputRefToDruidExpression(rowSignature, rexNode);
+      return inputRefToDruidExpression(rowSignature, rexNode, calculateExpressionBitmapIndex);
     } else if (rexNode instanceof RexOver) {
       throw new CannotBuildQueryException(
           StringUtils.format("Unexpected OVER expression during translation [%s]", rexNode)
@@ -249,7 +250,7 @@ public class Expressions
       return rexCallToDruidExpression(plannerContext, rowSignature, rexNode, postAggregatorVisitor);
     } else if (kind == SqlKind.LITERAL) {
       final DruidLiteral eval = calciteLiteralToDruidLiteral(plannerContext, rexNode);
-      return eval != null ? DruidExpression.ofLiteral(eval) : null;
+      return eval != null ? DruidExpression.ofLiteral(eval, calculateExpressionBitmapIndex) : null;
     } else {
       // Can't translate.
       return null;
@@ -258,7 +259,8 @@ public class Expressions
 
   private static DruidExpression inputRefToDruidExpression(
       final RowSignature rowSignature,
-      final RexNode rexNode
+      final RexNode rexNode,
+      final boolean calculateExpressionBitmapIndex
   )
   {
     // Translate field references.
@@ -269,7 +271,7 @@ public class Expressions
       throw new ISE("Expression referred to nonexistent index[%d]", ref.getIndex());
     }
 
-    return DruidExpression.ofColumn(columnType.orElse(null), columnName);
+    return DruidExpression.ofColumn(columnType.orElse(null), columnName, calculateExpressionBitmapIndex);
   }
 
   private static DruidExpression rexCallToDruidExpression(
@@ -301,7 +303,7 @@ public class Expressions
         if (postAggregator != null) {
           postAggregatorVisitor.addPostAgg(postAggregator);
           String exprName = postAggregator.getName();
-          return DruidExpression.ofColumn(postAggregator.getType(rowSignature), exprName);
+          return DruidExpression.ofColumn(postAggregator.getType(rowSignature), exprName, plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex());
         }
       }
 

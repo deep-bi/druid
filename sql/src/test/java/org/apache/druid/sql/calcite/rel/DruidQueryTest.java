@@ -68,7 +68,8 @@ public class DruidQueryTest
         VirtualColumnRegistry.create(
             RowSignature.empty(),
             new ExpressionParserImpl(TestExprMacroTable.INSTANCE),
-            false
+            false,
+            true
         ),
         CalciteTests.createJoinableFactoryWrapper()
     );
@@ -85,7 +86,8 @@ public class DruidQueryTest
         VirtualColumnRegistry.create(
             RowSignature.empty(),
             new ExpressionParserImpl(TestExprMacroTable.INSTANCE),
-            false
+            false,
+            true
         ),
         CalciteTests.createJoinableFactoryWrapper()
     );
@@ -102,7 +104,8 @@ public class DruidQueryTest
         VirtualColumnRegistry.create(
             RowSignature.empty(),
             new ExpressionParserImpl(TestExprMacroTable.INSTANCE),
-            false
+            false,
+            true
         ),
         CalciteTests.createJoinableFactoryWrapper()
     );
@@ -120,7 +123,8 @@ public class DruidQueryTest
         VirtualColumnRegistry.create(
             RowSignature.empty(),
             new ExpressionParserImpl(TestExprMacroTable.INSTANCE),
-            false
+            false,
+            true
         ),
         CalciteTests.createJoinableFactoryWrapper()
     );
@@ -138,7 +142,8 @@ public class DruidQueryTest
         VirtualColumnRegistry.create(
             RowSignature.empty(),
             new ExpressionParserImpl(TestExprMacroTable.INSTANCE),
-            false
+            false,
+            true
         ),
         CalciteTests.createJoinableFactoryWrapper()
     );
@@ -156,7 +161,8 @@ public class DruidQueryTest
         VirtualColumnRegistry.create(
             RowSignature.empty(),
             new ExpressionParserImpl(TestExprMacroTable.INSTANCE),
-            false
+            false,
+            true
         ),
         CalciteTests.createJoinableFactoryWrapper()
     );
@@ -174,7 +180,8 @@ public class DruidQueryTest
         VirtualColumnRegistry.create(
             RowSignature.empty(),
             new ExpressionParserImpl(TestExprMacroTable.INSTANCE),
-            false
+            false,
+            true
         ),
         CalciteTests.createJoinableFactoryWrapper()
     );
@@ -197,7 +204,8 @@ public class DruidQueryTest
         VirtualColumnRegistry.create(
             RowSignature.empty(),
             new ExpressionParserImpl(TestExprMacroTable.INSTANCE),
-            false
+            false,
+            true
         ),
         CalciteTests.createJoinableFactoryWrapper()
     );

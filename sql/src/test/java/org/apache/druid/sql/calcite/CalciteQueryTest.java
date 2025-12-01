@@ -13098,7 +13098,7 @@ public class CalciteQueryTest extends BaseCalciteQueryTest
                           "j0.",
                           equalsCondition(
                               makeExpression("substring(\"dim2\", 0, 1)"),
-                              DruidExpression.ofColumn(ColumnType.STRING, "j0.d0")
+                              DruidExpression.ofColumn(ColumnType.STRING, "j0.d0", true)
                           ),
                           JoinType.INNER
                       )

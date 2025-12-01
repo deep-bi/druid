@@ -61,6 +61,8 @@ public class RPadOperatorConversion implements SqlOperatorConversion
         rowSignature,
         rexNode,
         druidExpressions -> {
+          final boolean calculateExpressionBitmapIndex = plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex();
+
           if (druidExpressions.size() > 2) {
             return DruidExpression.ofFunctionCall(
                 Calcites.getColumnTypeForRelDataType(rexNode.getType()),
@@ -69,7 +71,7 @@ public class RPadOperatorConversion implements SqlOperatorConversion
                     druidExpressions.get(0),
                     druidExpressions.get(1),
                     druidExpressions.get(2)
-                )
+                ), calculateExpressionBitmapIndex
             );
           } else {
             return DruidExpression.ofFunctionCall(
@@ -78,8 +80,8 @@ public class RPadOperatorConversion implements SqlOperatorConversion
                 ImmutableList.of(
                     druidExpressions.get(0),
                     druidExpressions.get(1),
-                    DruidExpression.ofStringLiteral(" ")
-                )
+                    DruidExpression.ofStringLiteral(" ", calculateExpressionBitmapIndex)
+                ), calculateExpressionBitmapIndex
             );
           }
         }

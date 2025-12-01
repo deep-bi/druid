@@ -259,8 +259,8 @@ public class CalciteJoinQueryTest extends BaseCalciteQueryTest
                                         ),
                                         "j0.",
                                         equalsCondition(
-                                            DruidExpression.ofColumn(ColumnType.FLOAT, "m1"),
-                                            DruidExpression.ofColumn(ColumnType.FLOAT, "j0.m1")
+                                            DruidExpression.ofColumn(ColumnType.FLOAT, "m1", true),
+                                            DruidExpression.ofColumn(ColumnType.FLOAT, "j0.m1", true)
                                         ),
                                         JoinType.INNER
                                     )
@@ -348,8 +348,8 @@ public class CalciteJoinQueryTest extends BaseCalciteQueryTest
                                 ),
                                 "j0.",
                                 equalsCondition(
-                                    DruidExpression.ofColumn(ColumnType.FLOAT, "m1"),
-                                    DruidExpression.ofColumn(ColumnType.FLOAT, "j0.m1")
+                                    DruidExpression.ofColumn(ColumnType.FLOAT, "m1", true),
+                                    DruidExpression.ofColumn(ColumnType.FLOAT, "j0.m1", true)
                                 ),
                                 JoinType.INNER
                             )
@@ -435,8 +435,8 @@ public class CalciteJoinQueryTest extends BaseCalciteQueryTest
                                 ),
                                 "j0.",
                                 equalsCondition(
-                                    DruidExpression.ofColumn(ColumnType.FLOAT, "m1"),
-                                    DruidExpression.ofColumn(ColumnType.FLOAT, "j0.m1")
+                                    DruidExpression.ofColumn(ColumnType.FLOAT, "m1", true),
+                                    DruidExpression.ofColumn(ColumnType.FLOAT, "j0.m1", true)
                                 ),
                                 JoinType.INNER
                             )
@@ -1686,8 +1686,8 @@ public class CalciteJoinQueryTest extends BaseCalciteQueryTest
                               ),
                               "j0.",
                               equalsCondition(
-                                  DruidExpression.ofColumn(ColumnType.FLOAT, "m1"),
-                                  DruidExpression.ofColumn(ColumnType.FLOAT, "j0.v0")
+                                  DruidExpression.ofColumn(ColumnType.FLOAT, "m1", true),
+                                  DruidExpression.ofColumn(ColumnType.FLOAT, "j0.v0", true)
                               ),
                               JoinType.INNER
                           ),
@@ -1750,7 +1750,7 @@ public class CalciteJoinQueryTest extends BaseCalciteQueryTest
                           "_j0.",
                           equalsCondition(
                               makeExpression(ColumnType.DOUBLE, "CAST(\"j0.k\", 'DOUBLE')"),
-                              DruidExpression.ofColumn(ColumnType.DOUBLE, "_j0.m1")
+                              DruidExpression.ofColumn(ColumnType.DOUBLE, "_j0.m1", true)
                           ),
                           JoinType.INNER
                       )
@@ -2052,7 +2052,7 @@ public class CalciteJoinQueryTest extends BaseCalciteQueryTest
                           NullHandling.sqlCompatible() ?
                           equalsCondition(
                               DruidExpression.fromExpression("CAST(\"j0.k\", 'LONG')"),
-                              DruidExpression.ofColumn(ColumnType.LONG, "_j0.cnt")
+                              DruidExpression.ofColumn(ColumnType.LONG, "_j0.cnt", true)
                           )
                                                        : "1",
                           JoinType.INNER
@@ -2114,8 +2114,8 @@ public class CalciteJoinQueryTest extends BaseCalciteQueryTest
                               ),
                               "j0.",
                               equalsCondition(
-                                  DruidExpression.ofColumn(ColumnType.LONG, "cnt"),
-                                  DruidExpression.ofColumn(ColumnType.LONG, "j0.v0")
+                                  DruidExpression.ofColumn(ColumnType.LONG, "cnt", true),
+                                  DruidExpression.ofColumn(ColumnType.LONG, "j0.v0", true)
                               ),
                               JoinType.INNER
                           ),
@@ -2131,7 +2131,7 @@ public class CalciteJoinQueryTest extends BaseCalciteQueryTest
                           "_j0.",
                           equalsCondition(
                               makeExpression(ColumnType.LONG, "CAST(\"j0.k\", 'LONG')"),
-                              DruidExpression.ofColumn(ColumnType.LONG, "_j0.cnt")
+                              DruidExpression.ofColumn(ColumnType.LONG, "_j0.cnt", true)
                           ),
                           JoinType.INNER
                       )
@@ -2213,8 +2213,8 @@ public class CalciteJoinQueryTest extends BaseCalciteQueryTest
                         ),
                         "j0.",
                         equalsCondition(
-                            DruidExpression.ofColumn(ColumnType.FLOAT, "m1"),
-                            DruidExpression.ofColumn(ColumnType.FLOAT, "j0.v0")
+                            DruidExpression.ofColumn(ColumnType.FLOAT, "m1", true),
+                            DruidExpression.ofColumn(ColumnType.FLOAT, "j0.v0", true)
                         ),
                         JoinType.INNER
                     )
@@ -2260,8 +2260,8 @@ public class CalciteJoinQueryTest extends BaseCalciteQueryTest
                         ),
                         "j0.",
                         equalsCondition(
-                            DruidExpression.ofColumn(ColumnType.FLOAT, "m1"),
-                            DruidExpression.ofColumn(ColumnType.FLOAT, "j0.v0")
+                            DruidExpression.ofColumn(ColumnType.FLOAT, "m1", true),
+                            DruidExpression.ofColumn(ColumnType.FLOAT, "j0.v0", true)
                         ),
                         JoinType.INNER
                     )
@@ -2625,8 +2625,8 @@ public class CalciteJoinQueryTest extends BaseCalciteQueryTest
                                 ),
                                 "j0.",
                                 equalsCondition(
-                                    DruidExpression.ofColumn(ColumnType.LONG, "__time"),
-                                    DruidExpression.ofColumn(ColumnType.LONG, "j0.a0")
+                                    DruidExpression.ofColumn(ColumnType.LONG, "__time", true),
+                                    DruidExpression.ofColumn(ColumnType.LONG, "j0.a0", true)
                                 ),
                                 JoinType.INNER
                             )
@@ -5381,8 +5381,8 @@ public class CalciteJoinQueryTest extends BaseCalciteQueryTest
                 ),
                 "j0.",
                 equalsCondition(
-                    DruidExpression.ofColumn(ColumnType.FLOAT, "m1"),
-                    DruidExpression.ofColumn(ColumnType.FLOAT, "j0.m1")
+                    DruidExpression.ofColumn(ColumnType.FLOAT, "m1", true),
+                    DruidExpression.ofColumn(ColumnType.FLOAT, "j0.m1", true)
                 ),
                 JoinType.INNER
             )
@@ -5489,8 +5489,8 @@ public class CalciteJoinQueryTest extends BaseCalciteQueryTest
                 ),
                 "j0.",
                 equalsCondition(
-                    DruidExpression.ofColumn(ColumnType.FLOAT, "m1"),
-                    DruidExpression.ofColumn(ColumnType.FLOAT, "j0.m1")
+                    DruidExpression.ofColumn(ColumnType.FLOAT, "m1", true),
+                    DruidExpression.ofColumn(ColumnType.FLOAT, "j0.m1", true)
                 ),
                 JoinType.INNER
             )

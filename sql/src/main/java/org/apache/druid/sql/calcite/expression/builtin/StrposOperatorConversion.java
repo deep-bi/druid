@@ -65,7 +65,8 @@ public class StrposOperatorConversion implements SqlOperatorConversion
                 "(%s + 1)",
                 DruidExpression.functionCall("strpos").compile(args)
             ),
-            druidExpressions
+            druidExpressions,
+            plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex()
         )
     );
   }

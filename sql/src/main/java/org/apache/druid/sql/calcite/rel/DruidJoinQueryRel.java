@@ -193,7 +193,8 @@ public class DruidJoinQueryRel extends DruidRel<DruidJoinQueryRel>
     VirtualColumnRegistry virtualColumnRegistry = VirtualColumnRegistry.create(
         signature,
         plannerContext.getExpressionParser(),
-        plannerContext.getPlannerConfig().isForceExpressionVirtualColumns()
+        plannerContext.getPlannerConfig().isForceExpressionVirtualColumns(),
+        plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex()
     );
     plannerContext.setJoinExpressionVirtualColumnRegistry(virtualColumnRegistry);
 

@@ -28,13 +28,13 @@
 # This Dockerfile prefers to use the COPY command over ADD.
 # See: https://phoenixnap.com/kb/docker-add-vs-copy
 
-ARG JDK_VERSION=8-slim-buster
+ARG JDK_VERSION=8-jdk
 
 # The FROM image provides Java on top of Debian, and
 # thus provides bash, apt-get, etc.
 # See https://hub.docker.com/_/openjdk
 
-FROM openjdk:$JDK_VERSION
+FROM eclipse-temurin:$JDK_VERSION
 
 ARG DRUID_VERSION
 ENV DRUID_VERSION=$DRUID_VERSION

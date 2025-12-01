@@ -121,7 +121,8 @@ public class NestedDataOperatorConversions
           druidExpressions -> DruidExpression.ofExpression(
               null,
               DruidExpression.functionCall(FUNCTION_NAME),
-              druidExpressions
+              druidExpressions,
+              plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex()
           )
       );
     }
@@ -161,7 +162,8 @@ public class NestedDataOperatorConversions
           druidExpressions -> DruidExpression.ofExpression(
               ColumnType.STRING_ARRAY,
               DruidExpression.functionCall(FUNCTION_NAME),
-              druidExpressions
+              druidExpressions,
+              plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex()
           )
       );
     }
@@ -212,9 +214,11 @@ public class NestedDataOperatorConversions
       }
 
       final Expr pathExpr = plannerContext.parseExpression(druidExpressions.get(1).getExpression());
+      final boolean calculateExpressionBitmapIndex = plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex();
+
       if (!pathExpr.isLiteral()) {
         // if path argument is not constant, just use a pure expression
-        return DruidExpression.ofFunctionCall(ColumnType.NESTED_DATA, FUNCTION_NAME, druidExpressions);
+        return DruidExpression.ofFunctionCall(ColumnType.NESTED_DATA, FUNCTION_NAME, druidExpressions, calculateExpressionBitmapIndex);
       }
       // pre-normalize path so that the same expressions with different json path syntax are collapsed
       final String path = (String) pathExpr.eval(InputBindings.nilBindings()).value();
@@ -228,7 +232,7 @@ public class NestedDataOperatorConversions
             ColumnType.NESTED_DATA,
             builder,
             ImmutableList.of(
-                DruidExpression.ofColumn(ColumnType.NESTED_DATA, druidExpressions.get(0).getDirectColumn())
+                DruidExpression.ofColumn(ColumnType.NESTED_DATA, druidExpressions.get(0).getDirectColumn(), calculateExpressionBitmapIndex)
             ),
             (name, outputType, expression, macroTable) -> new NestedFieldVirtualColumn(
                 druidExpressions.get(0).getDirectColumn(),
@@ -238,10 +242,10 @@ public class NestedDataOperatorConversions
                 true,
                 null,
                 null
-            )
+            ), calculateExpressionBitmapIndex
         );
       }
-      return DruidExpression.ofExpression(ColumnType.NESTED_DATA, builder, druidExpressions);
+      return DruidExpression.ofExpression(ColumnType.NESTED_DATA, builder, druidExpressions, calculateExpressionBitmapIndex);
     }
   }
 
@@ -387,6 +391,8 @@ public class NestedDataOperatorConversions
       }
 
       final Expr pathExpr = plannerContext.parseExpression(druidExpressions.get(1).getExpression());
+      final boolean calculateExpressionBitmapIndex = plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex();
+
       if (!pathExpr.isLiteral()) {
         // if path argument is not constant, just use a pure expression
         return DruidExpression.ofFunctionCall(
@@ -394,8 +400,8 @@ public class NestedDataOperatorConversions
             "json_value",
             ImmutableList.<DruidExpression>builder()
                          .addAll(druidExpressions)
-                         .add(DruidExpression.ofStringLiteral(druidType.asTypeString()))
-                         .build()
+                         .add(DruidExpression.ofStringLiteral(druidType.asTypeString(), calculateExpressionBitmapIndex))
+                         .build(), calculateExpressionBitmapIndex
         );
       }
       // pre-normalize path so that the same expressions with different json path syntax are collapsed
@@ -413,7 +419,7 @@ public class NestedDataOperatorConversions
             druidType,
             builder,
             ImmutableList.of(
-                DruidExpression.ofColumn(ColumnType.NESTED_DATA, druidExpressions.get(0).getDirectColumn())
+                DruidExpression.ofColumn(ColumnType.NESTED_DATA, druidExpressions.get(0).getDirectColumn(), calculateExpressionBitmapIndex)
             ),
             (name, outputType, expression, macroTable) -> new NestedFieldVirtualColumn(
                 druidExpressions.get(0).getDirectColumn(),
@@ -423,10 +429,10 @@ public class NestedDataOperatorConversions
                 false,
                 null,
                 null
-            )
+            ), calculateExpressionBitmapIndex
         );
       }
-      return DruidExpression.ofExpression(druidType, builder, druidExpressions);
+      return DruidExpression.ofExpression(druidType, builder, druidExpressions, calculateExpressionBitmapIndex);
     }
 
     static SqlFunction buildFunction(String functionName, SqlTypeName typeName)
@@ -536,6 +542,7 @@ public class NestedDataOperatorConversions
       final String jsonPath = NestedPathFinder.toNormalizedJsonPath(parts);
       final DruidExpression.ExpressionGenerator builder = (args) ->
           "json_value(" + args.get(0).getExpression() + ",'" + jsonPath + "', '" + druidType.asTypeString() + "')";
+      final boolean calculateExpressionBitmapIndex = plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex();
 
       if (druidExpressions.get(0).isSimpleExtraction()) {
 
@@ -543,7 +550,7 @@ public class NestedDataOperatorConversions
             druidType,
             builder,
             ImmutableList.of(
-                DruidExpression.ofColumn(ColumnType.NESTED_DATA, druidExpressions.get(0).getDirectColumn())
+                DruidExpression.ofColumn(ColumnType.NESTED_DATA, druidExpressions.get(0).getDirectColumn(), calculateExpressionBitmapIndex)
             ),
             (name, outputType, expression, macroTable) -> new NestedFieldVirtualColumn(
                 druidExpressions.get(0).getDirectColumn(),
@@ -553,10 +560,10 @@ public class NestedDataOperatorConversions
                 false,
                 null,
                 null
-            )
+            ), calculateExpressionBitmapIndex
         );
       }
-      return DruidExpression.ofExpression(druidType, builder, druidExpressions);
+      return DruidExpression.ofExpression(druidType, builder, druidExpressions, calculateExpressionBitmapIndex);
     }
 
     static SqlFunction buildArrayFunction(String functionName, SqlTypeName elementTypeName)
@@ -698,13 +705,14 @@ public class NestedDataOperatorConversions
       // STRING is the closest thing we have to ANY, though maybe someday this
       // can be replaced with a VARIANT type
       final ColumnType columnType = ColumnType.STRING;
+      final boolean calculateExpressionBitmapIndex = plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex();
 
       if (druidExpressions.get(0).isSimpleExtraction()) {
         return DruidExpression.ofVirtualColumn(
             columnType,
             builder,
             ImmutableList.of(
-                DruidExpression.ofColumn(ColumnType.NESTED_DATA, druidExpressions.get(0).getDirectColumn())
+                DruidExpression.ofColumn(ColumnType.NESTED_DATA, druidExpressions.get(0).getDirectColumn(), calculateExpressionBitmapIndex)
             ),
             (name, outputType, expression, macroTable) -> new NestedFieldVirtualColumn(
                 druidExpressions.get(0).getDirectColumn(),
@@ -714,10 +722,10 @@ public class NestedDataOperatorConversions
                 false,
                 null,
                 null
-            )
+            ), calculateExpressionBitmapIndex
         );
       }
-      return DruidExpression.ofExpression(columnType, builder, druidExpressions);
+      return DruidExpression.ofExpression(columnType, builder, druidExpressions, calculateExpressionBitmapIndex);
     }
   }
 
@@ -759,7 +767,8 @@ public class NestedDataOperatorConversions
               ColumnType.NESTED_DATA,
               null,
               DruidExpression.functionCall(FUNCTION_NAME),
-              druidExpressions
+              druidExpressions,
+              plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex()
           );
 
       final RexCall call = (RexCall) rexNode;
@@ -812,7 +821,8 @@ public class NestedDataOperatorConversions
           druidExpressions -> DruidExpression.ofExpression(
               ColumnType.NESTED_DATA,
               DruidExpression.functionCall(FUNCTION_NAME),
-              druidExpressions
+              druidExpressions,
+              plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex()
           )
       );
     }
@@ -850,7 +860,8 @@ public class NestedDataOperatorConversions
           druidExpressions -> DruidExpression.ofExpression(
               ColumnType.NESTED_DATA,
               DruidExpression.functionCall(FUNCTION_NAME),
-              druidExpressions
+              druidExpressions,
+              plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex()
           )
       );
     }
@@ -888,7 +899,8 @@ public class NestedDataOperatorConversions
           druidExpressions -> DruidExpression.ofExpression(
               ColumnType.NESTED_DATA,
               DruidExpression.functionCall(FUNCTION_NAME),
-              druidExpressions
+              druidExpressions,
+              plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex()
           )
       );
     }

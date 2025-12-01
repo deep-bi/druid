@@ -36,14 +36,14 @@ public class GroupingTest
                   .withNonnullFields("dimensions", "subtotals", "aggregations", "outputRowSignature")
                   .withPrefabValues(
                       DruidExpression.class,
-                      DruidExpression.ofLiteral(ColumnType.LONG, "100"),
+                      DruidExpression.ofLiteral(ColumnType.LONG, "100", true),
                       DruidExpression.ofExpression(
                           ColumnType.LONG,
                           (args) -> StringUtils.format("%s + %s", args.get(0), args.get(1)),
                           ImmutableList.of(
-                              DruidExpression.ofLiteral(ColumnType.LONG, "100"),
-                              DruidExpression.ofLiteral(ColumnType.LONG, "200")
-                          )
+                              DruidExpression.ofLiteral(ColumnType.LONG, "100", true),
+                              DruidExpression.ofLiteral(ColumnType.LONG, "200", true)
+                          ), true
                       )
                   )
                   .verify();

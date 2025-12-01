@@ -356,7 +356,8 @@ public class ExpressionTestHelper
     final VirtualColumnRegistry virtualColumnRegistry = VirtualColumnRegistry.create(
         rowSignature,
         new ExpressionParserImpl(PLANNER_TOOLBOX.exprMacroTable()),
-        false
+        false,
+        true
     );
 
     final DimFilter filter = Expressions.toFilter(PLANNER_CONTEXT, rowSignature, virtualColumnRegistry, rexNode);

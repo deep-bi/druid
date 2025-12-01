@@ -100,7 +100,7 @@ public class CastOperatorConversion implements SqlOperatorConversion
         // Calcites.getColumnTypeForRelDataType returns null in cases of NULL, but also any type which cannot be
         // mapped to a native druid type. in the case of the former, make a null literal of the toType
         if (fromType.equals(SqlTypeName.NULL)) {
-          return DruidExpression.ofLiteral(toDruidType, DruidExpression.nullLiteral());
+          return DruidExpression.ofLiteral(toDruidType, DruidExpression.nullLiteral(), plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex());
         }
         // otherwise, we have no runtime type for from SQL type.
         return null;
@@ -143,14 +143,15 @@ public class CastOperatorConversion implements SqlOperatorConversion
   )
   {
     // Cast strings to datetimes by parsing them from SQL format.
+    final boolean calculateExpressionBitmapIndex = plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex();
     final DruidExpression timestampExpression = DruidExpression.ofFunctionCall(
         toDruidType,
         "timestamp_parse",
         ImmutableList.of(
             operand,
-            DruidExpression.ofLiteral(null, DruidExpression.nullLiteral()),
-            DruidExpression.ofStringLiteral(plannerContext.getTimeZone().getID())
-        )
+            DruidExpression.ofLiteral(null, DruidExpression.nullLiteral(), calculateExpressionBitmapIndex),
+            DruidExpression.ofStringLiteral(plannerContext.getTimeZone().getID(), calculateExpressionBitmapIndex)
+        ), calculateExpressionBitmapIndex
     );
 
     if (toType == SqlTypeName.DATE) {
@@ -173,14 +174,15 @@ public class CastOperatorConversion implements SqlOperatorConversion
       final ColumnType toDruidType
   )
   {
+    final boolean calculateExpressionBitmapIndex = plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex();
     return DruidExpression.ofFunctionCall(
         toDruidType,
         "timestamp_format",
         ImmutableList.of(
             operand,
-            DruidExpression.ofStringLiteral(dateTimeFormatString(fromType)),
-            DruidExpression.ofStringLiteral(plannerContext.getTimeZone().getID())
-        )
+            DruidExpression.ofStringLiteral(dateTimeFormatString(fromType), calculateExpressionBitmapIndex),
+            DruidExpression.ofStringLiteral(plannerContext.getTimeZone().getID(), calculateExpressionBitmapIndex)
+        ), calculateExpressionBitmapIndex
     );
   }
 

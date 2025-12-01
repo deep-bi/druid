@@ -277,9 +277,10 @@ public class CalciteSubqueryTest extends BaseCalciteQueryTest
                                                             ColumnType.STRING,
                                                             null,
                                                             args -> "substring(\"dim2\", 0, 1)",
-                                                            Collections.emptyList()
+                                                            Collections.emptyList(),
+                                                            true
                                                         ),
-                                                        DruidExpression.ofColumn(ColumnType.STRING, "j0.d0")
+                                                        DruidExpression.ofColumn(ColumnType.STRING, "j0.d0", true)
                                                     ),
                                                     JoinType.INNER
                                                 )
@@ -529,7 +530,7 @@ public class CalciteSubqueryTest extends BaseCalciteQueryTest
                                         .build()
                         ),
                         "j0.",
-                        equalsCondition(DruidExpression.ofColumn(ColumnType.STRING, "dim2"), DruidExpression.ofColumn(ColumnType.STRING, "j0.d0")),
+                        equalsCondition(DruidExpression.ofColumn(ColumnType.STRING, "dim2", true), DruidExpression.ofColumn(ColumnType.STRING, "j0.d0", true)),
                         JoinType.INNER
                     )
                 )
@@ -595,8 +596,8 @@ public class CalciteSubqueryTest extends BaseCalciteQueryTest
                         "j0.",
                         StringUtils.format(
                             "(%s && %s)",
-                            equalsCondition(DruidExpression.ofColumn(ColumnType.STRING, "dim1"), DruidExpression.ofColumn(ColumnType.STRING, "j0.d0")),
-                            equalsCondition(DruidExpression.ofColumn(ColumnType.STRING, "dim2"), DruidExpression.ofColumn(ColumnType.STRING, "j0.p0"))
+                            equalsCondition(DruidExpression.ofColumn(ColumnType.STRING, "dim1", true), DruidExpression.ofColumn(ColumnType.STRING, "j0.d0", true)),
+                            equalsCondition(DruidExpression.ofColumn(ColumnType.STRING, "dim2", true), DruidExpression.ofColumn(ColumnType.STRING, "j0.p0", true))
                         ),
                         JoinType.INNER
                     )
