@@ -55,7 +55,7 @@ services:
       druid-it-net:
         ipv4_address: 172.172.172.2
     volumes:
-      - ${SHARED_DIR}/kafka:/apache/kafka
+      - ${SHARED_DIR}/kafka:/var/lib/kafka/data
     environment:
       KAFKA_NODE_ID: "1001"
       KAFKA_PROCESS_ROLES: "controller,broker"
@@ -65,9 +65,11 @@ services:
       KAFKA_CONTROLLER_QUORUM_VOTERS: "1001@kafka:9093"
       KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
       KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
+      KAFKA_LOG_DIRS: "/var/lib/kafka/data"
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_HEAP_OPTS: "-Xms256m -Xmx256m"
 
   # Uses the official MySQL image
   # See https://hub.docker.com/_/mysql
