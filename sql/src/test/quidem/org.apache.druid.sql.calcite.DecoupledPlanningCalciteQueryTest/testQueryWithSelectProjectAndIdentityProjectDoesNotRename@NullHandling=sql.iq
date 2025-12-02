@@ -56,12 +56,14 @@ DruidProject(EXPR$0=[/(CAST($0):DECIMAL(19, 1), $1)], druid=[logical])
         "type" : "expression",
         "name" : "v0",
         "expression" : "case_searched(((\"__time\" >= 947005200000) && (\"__time\" < 1641402000000)),\"dim1\",null)",
-        "outputType" : "STRING"
+        "outputType" : "STRING",
+        "enableBitmapIndexes" : true
       }, {
         "type" : "expression",
         "name" : "v1",
         "expression" : "case_searched(((\"__time\" >= 947005200000) && (\"__time\" < 1641402000000)),1,0)",
-        "outputType" : "LONG"
+        "outputType" : "LONG",
+        "enableBitmapIndexes" : true
       } ],
       "granularity" : {
         "type" : "all"

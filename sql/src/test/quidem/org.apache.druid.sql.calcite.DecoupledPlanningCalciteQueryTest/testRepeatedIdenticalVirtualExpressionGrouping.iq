@@ -47,7 +47,8 @@ DruidProject(col_a=[$0], col_b=[true], druid=[logical])
     "type" : "expression",
     "name" : "v0",
     "expression" : "1",
-    "outputType" : "LONG"
+    "outputType" : "LONG",
+    "enableBitmapIndexes" : true
   } ],
   "granularity" : {
     "type" : "all"

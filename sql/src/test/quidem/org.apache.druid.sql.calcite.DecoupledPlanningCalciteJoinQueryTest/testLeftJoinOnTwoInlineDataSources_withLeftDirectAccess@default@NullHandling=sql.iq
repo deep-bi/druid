@@ -63,7 +63,8 @@ DruidProject(dim1=[CAST('10.1':VARCHAR):VARCHAR], __time=[$1], druid=[logical])
           "type" : "expression",
           "name" : "v0",
           "expression" : "'10.1'",
-          "outputType" : "STRING"
+          "outputType" : "STRING",
+          "enableBitmapIndexes" : true
         } ],
         "resultFormat" : "compactedList",
         "filter" : {
@@ -119,7 +120,8 @@ DruidProject(dim1=[CAST('10.1':VARCHAR):VARCHAR], __time=[$1], druid=[logical])
     "type" : "expression",
     "name" : "_v0",
     "expression" : "'10.1'",
-    "outputType" : "STRING"
+    "outputType" : "STRING",
+    "enableBitmapIndexes" : true
   } ],
   "resultFormat" : "compactedList",
   "columns" : [ "__time", "_v0" ],
