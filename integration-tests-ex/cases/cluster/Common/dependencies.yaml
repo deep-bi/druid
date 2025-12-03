@@ -41,10 +41,9 @@ services:
     environment:
        ZOO_LOG4J_PROP: INFO,ROLLINGFILE
 
-  # Uses the Bitnami Kafka image
-  # See https://hub.docker.com/r/bitnami/kafka/
+  # Uses the Apache Kafka image
   kafka:
-    image: bitnami/kafka:${KAFKA_VERSION}
+    image: apache/kafka:${KAFKA_VERSION}
     container_name: kafka
     # platform: linux/x86_64
     labels:
@@ -56,17 +55,21 @@ services:
       druid-it-net:
         ipv4_address: 172.172.172.2
     volumes:
-      - ${SHARED_DIR}/kafka:/bitnami/kafka
+      - ${SHARED_DIR}/kafka:/var/lib/kafka/data
     environment:
-      - KAFKA_CFG_NODE_ID=1001
-      - KAFKA_CFG_PROCESS_ROLES=controller,broker
-      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093
-      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
-      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1001@kafka:9093
-      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
-      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
-      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT,PLAINTEXT:PLAINTEXT
-      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      KAFKA_NODE_ID: "1001"
+      KAFKA_PROCESS_ROLES: "controller,broker"
+      KAFKA_LISTENERS: "PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,EXTERNAL://0.0.0.0:9094"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1001@kafka:9093"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
+      KAFKA_LOG_DIRS: "/var/lib/kafka/data"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_HEAP_OPTS: "-Xms256m -Xmx256m"
 
   # Uses the official MySQL image
   # See https://hub.docker.com/_/mysql
@@ -93,6 +96,13 @@ services:
       MYSQL_DATABASE: druid
       MYSQL_USER: druid
       MYSQL_PASSWORD: diurd
+    healthcheck:
+      test: "mysql -uroot -pdriud druid -e 'select 1'"
+      interval: 5s
+      timeout: 3s
+      retries: 60
+      start_period: 3m
+      start_interval: 15s
 
   minio:
     container_name: minio
@@ -111,6 +121,13 @@ services:
     environment:
       - MINIO_ROOT_USER=${AWS_ACCESS_KEY_ID}
       - MINIO_ROOT_PASSWORD=${AWS_SECRET_ACCESS_KEY}
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:9000/minio/health/ready" ]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 1m
+      start_interval: 5s
 
   create_minio_buckets:
     image: minio/mc
