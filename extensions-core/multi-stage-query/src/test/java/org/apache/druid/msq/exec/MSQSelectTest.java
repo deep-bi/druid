@@ -264,7 +264,7 @@ public class MSQSelectTest extends MSQTestBase
     testSelectQuery()
         .setSql("select cnt,unique_dim1 from some_datasource")
         .setExpectedMSQSpec(
-            LegacyMSQSpec.builder()
+            MSQSpec.builder()
                    .query(
                        newScanQueryBuilder()
                            .dataSource(SOME_DATASOURCE)
