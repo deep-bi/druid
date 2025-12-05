@@ -13,8 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-ARG JDK_VERSION=17-slim-buster
-FROM openjdk:$JDK_VERSION as druidbase
+ARG JDK_VERSION=17-jdk
+FROM eclipse-temurin:$JDK_VERSION as druidbase
 
 # Bundle everything into one script so cleanup can reduce image size.
 # Otherwise docker's layered images mean that things are not actually deleted.
@@ -43,7 +43,11 @@ RUN echo "[mysqld]\ncharacter-set-server=utf8\ncollation-server=utf8_bin\n" >> /
 # touch is needed because OverlayFS's copy-up operation breaks POSIX standards. See https://github.com/docker/for-linux/issues/72.
 RUN find /var/lib/mysql -type f -exec touch {} \; && /etc/init.d/mysql start \
       && echo "CREATE USER 'druid'@'%' IDENTIFIED BY 'diurd'; GRANT ALL ON druid.* TO 'druid'@'%'; CREATE database druid DEFAULT CHARACTER SET utf8mb4;" | mysql -u root \
-      && /etc/init.d/mysql stop
+      && /etc/init.d/mysql stop \
+
+ADD resolveip /usr/local/bin/resolveip
+RUN chmod 0755 /usr/local/bin/resolveip
+
 
 # Add Druid scripts and jars
 ADD bin/* /usr/local/druid/bin/
@@ -68,6 +72,7 @@ RUN wget -q "https://packages.confluent.io/maven/io/confluent/kafka-protobuf-pro
 # Add sample data
 # touch is needed because OverlayFS's copy-up operation breaks POSIX standards. See https://github.com/docker/for-linux/issues/72.
 RUN find /var/lib/mysql -type f -exec touch {} \; && service mysql start \
+      && mysql -uroot -e "ALTER USER 'druid'@'%' IDENTIFIED WITH mysql_native_password BY 'diurd';" \
       && /usr/local/druid/bin/run-java -cp "/usr/local/druid/lib/*" -Ddruid.extensions.directory=/usr/local/druid/extensions -Ddruid.extensions.loadList='["mysql-metadata-storage"]' -Ddruid.metadata.storage.type=mysql -Ddruid.metadata.mysql.driver.driverClassName=$MYSQL_DRIVER_CLASSNAME org.apache.druid.cli.Main tools metadata-init --connectURI="jdbc:mysql://localhost:3306/druid" --user=druid --password=diurd \
       && /etc/init.d/mysql stop
 ADD test-data /test-data
