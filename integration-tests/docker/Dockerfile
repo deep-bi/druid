@@ -44,7 +44,7 @@ RUN echo "[mysqld]\ncharacter-set-server=utf8\ncollation-server=utf8_bin\n" >> /
 # touch is needed because OverlayFS's copy-up operation breaks POSIX standards. See https://github.com/docker/for-linux/issues/72.
 RUN find /var/lib/mysql -type f -exec touch {} \; && /etc/init.d/mysql start \
       && echo "CREATE USER 'druid'@'%' IDENTIFIED BY 'diurd'; GRANT ALL ON druid.* TO 'druid'@'%'; CREATE database druid DEFAULT CHARACTER SET utf8mb4;" | mysql -u root \
-      && /etc/init.d/mysql stop \
+      && /etc/init.d/mysql stop
 
 # Add Druid scripts and jars
 ADD bin/* /usr/local/druid/bin/
