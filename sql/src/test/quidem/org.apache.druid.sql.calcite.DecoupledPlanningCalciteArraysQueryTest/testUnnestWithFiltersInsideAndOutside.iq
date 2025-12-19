@@ -57,7 +57,8 @@ DruidProject(d3=[$18], druid=[logical])
           "type" : "expression",
           "name" : "v0",
           "expression" : "'a'",
-          "outputType" : "STRING"
+          "outputType" : "STRING",
+          "enableBitmapIndexes" : true
         } ],
         "resultFormat" : "compactedList",
         "filter" : {
@@ -89,7 +90,8 @@ DruidProject(d3=[$18], druid=[logical])
       "type" : "expression",
       "name" : "j0.unnest",
       "expression" : "mv_to_array(\"dim3\")",
-      "outputType" : "ARRAY<STRING>"
+      "outputType" : "ARRAY<STRING>",
+      "enableBitmapIndexes" : true
     },
     "unnestFilter" : {
       "type" : "not",
