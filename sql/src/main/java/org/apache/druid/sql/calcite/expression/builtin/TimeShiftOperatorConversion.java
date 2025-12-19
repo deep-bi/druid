@@ -90,6 +90,7 @@ public class TimeShiftOperatorConversion implements SqlOperatorConversion
         operand -> DateTimes.inferTzFromString(RexLiteral.stringValue(operand)),
         plannerContext.getTimeZone()
     );
+    final boolean calculateExpressionBitmapIndex = plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex();
 
     return DruidExpression.ofFunctionCall(
         Calcites.getColumnTypeForRelDataType(rexNode.getType()),
@@ -98,8 +99,8 @@ public class TimeShiftOperatorConversion implements SqlOperatorConversion
             timeExpression,
             periodExpression,
             stepExpression,
-            DruidExpression.ofStringLiteral(timeZone.getID())
-        )
+            DruidExpression.ofStringLiteral(timeZone.getID(), calculateExpressionBitmapIndex)
+        ), calculateExpressionBitmapIndex
     );
   }
 }

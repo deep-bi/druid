@@ -169,9 +169,9 @@ public class MultiValueStringOperatorConversions
     }
 
     @Override
-    protected String getFilterExpression(List<DruidExpression> druidExpressions)
+    protected String getFilterExpression(List<DruidExpression> druidExpressions, boolean isCalculateExpressionBitmapIndex)
     {
-      return super.getFilterExpression(harmonizeNullsMvdArg0OperandList(druidExpressions));
+      return super.getFilterExpression(harmonizeNullsMvdArg0OperandList(druidExpressions, isCalculateExpressionBitmapIndex), isCalculateExpressionBitmapIndex);
     }
 
     @Override
@@ -181,6 +181,7 @@ public class MultiValueStringOperatorConversions
         RexNode rexNode
     )
     {
+      boolean isCalculateExpressionBitmapIndex = plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex();
       return OperatorConversions.convertCall(
           plannerContext,
           rowSignature,
@@ -188,7 +189,8 @@ public class MultiValueStringOperatorConversions
           druidExpressions -> DruidExpression.ofFunctionCall(
               Calcites.getColumnTypeForRelDataType(rexNode.getType()),
               getDruidFunctionName(),
-              harmonizeNullsMvdArg0OperandList(druidExpressions)
+              harmonizeNullsMvdArg0OperandList(druidExpressions, isCalculateExpressionBitmapIndex),
+              isCalculateExpressionBitmapIndex
           )
       );
     }
@@ -202,6 +204,7 @@ public class MultiValueStringOperatorConversions
         PostAggregatorVisitor postAggregatorVisitor
     )
     {
+      boolean isCalculateExpressionBitmapIndex = plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex();
       return OperatorConversions.convertCallWithPostAggOperands(
           plannerContext,
           rowSignature,
@@ -209,7 +212,8 @@ public class MultiValueStringOperatorConversions
           operands -> DruidExpression.ofFunctionCall(
               Calcites.getColumnTypeForRelDataType(rexNode.getType()),
               getDruidFunctionName(),
-              harmonizeNullsMvdArg0OperandList(operands)
+              harmonizeNullsMvdArg0OperandList(operands, isCalculateExpressionBitmapIndex),
+              isCalculateExpressionBitmapIndex
           ),
           postAggregatorVisitor
       );
@@ -387,9 +391,9 @@ public class MultiValueStringOperatorConversions
     }
 
     @Override
-    protected String getFilterExpression(List<DruidExpression> druidExpressions)
+    protected String getFilterExpression(List<DruidExpression> druidExpressions, boolean isCalculateExpressionBitmapIndex)
     {
-      return super.getFilterExpression(harmonizeNullsMvdArg0OperandList(druidExpressions));
+      return super.getFilterExpression(harmonizeNullsMvdArg0OperandList(druidExpressions, isCalculateExpressionBitmapIndex), isCalculateExpressionBitmapIndex);
     }
 
     @Override
@@ -399,16 +403,18 @@ public class MultiValueStringOperatorConversions
         RexNode rexNode
     )
     {
+      boolean isCalculateExpressionBitmapIndex = plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex();
       return OperatorConversions.convertCall(
           plannerContext,
           rowSignature,
           rexNode,
           druidExpressions -> {
-            final List<DruidExpression> newArgs = harmonizeNullsMvdArg0OperandList(druidExpressions);
+            final List<DruidExpression> newArgs = harmonizeNullsMvdArg0OperandList(druidExpressions, isCalculateExpressionBitmapIndex);
             return DruidExpression.ofFunctionCall(
                 Calcites.getColumnTypeForRelDataType(rexNode.getType()),
                 getDruidFunctionName(),
-                newArgs
+                newArgs,
+                isCalculateExpressionBitmapIndex
             );
           }
       );
@@ -423,6 +429,7 @@ public class MultiValueStringOperatorConversions
         PostAggregatorVisitor postAggregatorVisitor
     )
     {
+      boolean isCalculateExpressionBitmapIndex = plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex();
       return OperatorConversions.convertCallWithPostAggOperands(
           plannerContext,
           rowSignature,
@@ -430,7 +437,8 @@ public class MultiValueStringOperatorConversions
           operands -> DruidExpression.ofFunctionCall(
               Calcites.getColumnTypeForRelDataType(rexNode.getType()),
               getDruidFunctionName(),
-              harmonizeNullsMvdArg0OperandList(operands)
+              harmonizeNullsMvdArg0OperandList(operands, isCalculateExpressionBitmapIndex),
+              isCalculateExpressionBitmapIndex
           ),
           postAggregatorVisitor
       );
@@ -475,6 +483,7 @@ public class MultiValueStringOperatorConversions
                          .append(")");
         return expressionBuilder.toString();
       };
+      final boolean calculateExpressionBitmapIndex = plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex();
 
       Expr expr = plannerContext.parseExpression(druidExpressions.get(1).getExpression());
       if (druidExpressions.get(0).isSimpleExtraction() && expr.isLiteral()) {
@@ -496,7 +505,7 @@ public class MultiValueStringOperatorConversions
                 druidExpressions.get(0).getSimpleExtraction().toDimensionSpec(druidExpressions.get(0).getDirectColumn(), outputType),
                 literals,
                 isAllowList()
-            )
+            ), calculateExpressionBitmapIndex
         );
 
         // if the join expression VC registry is present, it means that this expression is part of a join condition
@@ -506,13 +515,13 @@ public class MultiValueStringOperatorConversions
               druidExpression,
               ColumnType.STRING
           );
-          return DruidExpression.ofColumn(ColumnType.STRING, virtualColumnName);
+          return DruidExpression.ofColumn(ColumnType.STRING, virtualColumnName, calculateExpressionBitmapIndex);
         }
 
         return druidExpression;
       }
 
-      return DruidExpression.ofExpression(ColumnType.STRING, builder, druidExpressions);
+      return DruidExpression.ofExpression(ColumnType.STRING, builder, druidExpressions, calculateExpressionBitmapIndex);
     }
   }
 
@@ -575,7 +584,7 @@ public class MultiValueStringOperatorConversions
   }
 
 
-  private static List<DruidExpression> harmonizeNullsMvdArg0OperandList(List<DruidExpression> druidExpressions)
+  private static List<DruidExpression> harmonizeNullsMvdArg0OperandList(List<DruidExpression> druidExpressions, boolean isCalculateExpressionBitmapIndex)
   {
     final List<DruidExpression> newArgs;
     if (druidExpressions.get(0).isDirectColumnAccess()) {
@@ -586,7 +595,8 @@ public class MultiValueStringOperatorConversions
           DruidExpression.ofFunctionCall(
               druidExpressions.get(0).getDruidType(),
               "mv_harmonize_nulls",
-              Collections.singletonList(druidExpressions.get(0))
+              Collections.singletonList(druidExpressions.get(0)),
+              isCalculateExpressionBitmapIndex
           )
       );
       newArgs.add(1, druidExpressions.get(1));

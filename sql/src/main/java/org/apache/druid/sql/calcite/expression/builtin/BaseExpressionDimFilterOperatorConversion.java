@@ -40,7 +40,7 @@ public abstract class BaseExpressionDimFilterOperatorConversion extends DirectOp
     super(operator, druidFunctionName);
   }
 
-  protected String getFilterExpression(List<DruidExpression> druidExpressions)
+  protected String getFilterExpression(List<DruidExpression> druidExpressions, boolean isCalculateExpressionBitmapIndex)
   {
     return DruidExpression.functionCall(getDruidFunctionName()).compile(druidExpressions);
   }
@@ -50,7 +50,7 @@ public abstract class BaseExpressionDimFilterOperatorConversion extends DirectOp
       List<DruidExpression> druidExpressions
   )
   {
-    final String filterExpr = getFilterExpression(druidExpressions);
+    final String filterExpr = getFilterExpression(druidExpressions, plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex());
 
     return new ExpressionDimFilter(
         filterExpr,

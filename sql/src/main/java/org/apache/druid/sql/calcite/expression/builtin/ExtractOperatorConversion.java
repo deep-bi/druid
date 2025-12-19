@@ -88,6 +88,6 @@ public class ExtractOperatorConversion implements SqlOperatorConversion
       return null;
     }
 
-    return TimeExtractOperatorConversion.applyTimeExtract(input, druidUnit, plannerContext.getTimeZone());
+    return TimeExtractOperatorConversion.applyTimeExtract(plannerContext, input, druidUnit, plannerContext.getTimeZone());
   }
 }

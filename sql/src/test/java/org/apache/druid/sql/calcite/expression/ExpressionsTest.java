@@ -173,9 +173,9 @@ public class ExpressionsTest extends CalciteTestBase
             ColumnType.STRING,
             DruidExpression.functionCall("concat"),
             ImmutableList.of(
-                DruidExpression.ofColumn(ColumnType.STRING, "s"),
-                DruidExpression.ofStringLiteral("bar")
-            )
+                DruidExpression.ofColumn(ColumnType.STRING, "s", true),
+                DruidExpression.ofStringLiteral("bar", true)
+            ), true
         ),
         "foobar"
     );
@@ -191,8 +191,8 @@ public class ExpressionsTest extends CalciteTestBase
             ColumnType.LONG,
             DruidExpression.functionCall("strlen"),
             ImmutableList.of(
-                DruidExpression.ofColumn(ColumnType.STRING, "s")
-            )
+                DruidExpression.ofColumn(ColumnType.STRING, "s", true)
+            ), true
         ),
         3L
     );
@@ -817,8 +817,8 @@ public class ExpressionsTest extends CalciteTestBase
             ColumnType.LONG,
             DruidExpression.functionCall("parse_long"),
             ImmutableList.of(
-                DruidExpression.ofColumn(ColumnType.STRING, "intstr")
-            )
+                DruidExpression.ofColumn(ColumnType.STRING, "intstr", true)
+            ), true
         ),
         -100L
     );
@@ -833,9 +833,9 @@ public class ExpressionsTest extends CalciteTestBase
             ColumnType.LONG,
             DruidExpression.functionCall("parse_long"),
             ImmutableList.of(
-                DruidExpression.ofColumn(ColumnType.STRING, "hexstr"),
-                DruidExpression.ofLiteral(ColumnType.LONG, DruidExpression.longLiteral(16))
-            )
+                DruidExpression.ofColumn(ColumnType.STRING, "hexstr", true),
+                DruidExpression.ofLiteral(ColumnType.LONG, DruidExpression.longLiteral(16), true)
+            ), true
         ),
         239L
     );
@@ -858,12 +858,12 @@ public class ExpressionsTest extends CalciteTestBase
                     ColumnType.STRING,
                     DruidExpression.functionCall("concat"),
                     ImmutableList.of(
-                        DruidExpression.ofStringLiteral("0x"),
-                        DruidExpression.ofColumn(ColumnType.STRING, "hexstr")
-                    )
+                        DruidExpression.ofStringLiteral("0x", true),
+                        DruidExpression.ofColumn(ColumnType.STRING, "hexstr", true)
+                    ), true
                 ),
-                DruidExpression.ofLiteral(ColumnType.LONG, DruidExpression.longLiteral(16))
-            )
+                DruidExpression.ofLiteral(ColumnType.LONG, DruidExpression.longLiteral(16), true)
+            ), true
         ),
         239L
     );
@@ -875,8 +875,8 @@ public class ExpressionsTest extends CalciteTestBase
             ColumnType.LONG,
             DruidExpression.functionCall("parse_long"),
             ImmutableList.of(
-                DruidExpression.ofColumn(ColumnType.STRING, "hexstr")
-            )
+                DruidExpression.ofColumn(ColumnType.STRING, "hexstr", true)
+            ), true
         ),
         null
     );
@@ -942,8 +942,8 @@ public class ExpressionsTest extends CalciteTestBase
             ColumnType.LONG,
             DruidExpression.functionCall("floor"),
             ImmutableList.of(
-                DruidExpression.ofColumn(ColumnType.LONG, "a")
-            )
+                DruidExpression.ofColumn(ColumnType.LONG, "a", true)
+            ), true
         ),
         10.0
     );
@@ -955,8 +955,8 @@ public class ExpressionsTest extends CalciteTestBase
             ColumnType.FLOAT,
             DruidExpression.functionCall("floor"),
             ImmutableList.of(
-                DruidExpression.ofColumn(ColumnType.FLOAT, "x")
-            )
+                DruidExpression.ofColumn(ColumnType.FLOAT, "x", true)
+            ), true
         ),
         2.0
     );
@@ -968,8 +968,8 @@ public class ExpressionsTest extends CalciteTestBase
             ColumnType.LONG,
             DruidExpression.functionCall("floor"),
             ImmutableList.of(
-                DruidExpression.ofColumn(ColumnType.LONG, "y")
-            )
+                DruidExpression.ofColumn(ColumnType.LONG, "y", true)
+            ), true
         ),
         3.0
     );
@@ -981,8 +981,8 @@ public class ExpressionsTest extends CalciteTestBase
             ColumnType.FLOAT,
             DruidExpression.functionCall("floor"),
             ImmutableList.of(
-                DruidExpression.ofColumn(ColumnType.FLOAT, "z")
-            )
+                DruidExpression.ofColumn(ColumnType.FLOAT, "z", true)
+            ), true
         ),
         -3.0
     );
@@ -998,8 +998,8 @@ public class ExpressionsTest extends CalciteTestBase
             ColumnType.LONG,
             DruidExpression.functionCall("ceil"),
             ImmutableList.of(
-                DruidExpression.ofColumn(ColumnType.LONG, "a")
-            )
+                DruidExpression.ofColumn(ColumnType.LONG, "a", true)
+            ), true
         ),
         10.0
     );
@@ -1011,8 +1011,8 @@ public class ExpressionsTest extends CalciteTestBase
             ColumnType.FLOAT,
             DruidExpression.functionCall("ceil"),
             ImmutableList.of(
-                DruidExpression.ofColumn(ColumnType.FLOAT, "x")
-            )
+                DruidExpression.ofColumn(ColumnType.FLOAT, "x", true)
+            ), true
         ),
         3.0
     );
@@ -1024,8 +1024,8 @@ public class ExpressionsTest extends CalciteTestBase
             ColumnType.LONG,
             DruidExpression.functionCall("ceil"),
             ImmutableList.of(
-                DruidExpression.ofColumn(ColumnType.LONG, "y")
-            )
+                DruidExpression.ofColumn(ColumnType.LONG, "y", true)
+            ), true
         ),
         3.0
     );
@@ -1037,8 +1037,8 @@ public class ExpressionsTest extends CalciteTestBase
             ColumnType.FLOAT,
             DruidExpression.functionCall("ceil"),
             ImmutableList.of(
-                DruidExpression.ofColumn(ColumnType.FLOAT, "z")
-            )
+                DruidExpression.ofColumn(ColumnType.FLOAT, "z", true)
+            ), true
         ),
         -2.0
     );
@@ -1056,8 +1056,8 @@ public class ExpressionsTest extends CalciteTestBase
             ColumnType.LONG,
             (args) -> "(cast(cast(" + args.get(0).getExpression() + " * 1,'long'),'double') / 1)",
             ImmutableList.of(
-                DruidExpression.ofColumn(ColumnType.LONG, "a")
-            )
+                DruidExpression.ofColumn(ColumnType.LONG, "a", true)
+            ), true
         ),
         10.0
     );
@@ -1069,8 +1069,8 @@ public class ExpressionsTest extends CalciteTestBase
             ColumnType.FLOAT,
             (args) -> "(cast(cast(" + args.get(0).getExpression() + " * 1,'long'),'double') / 1)",
             ImmutableList.of(
-                DruidExpression.ofColumn(ColumnType.FLOAT, "x")
-            )
+                DruidExpression.ofColumn(ColumnType.FLOAT, "x", true)
+            ), true
         ),
         2.0
     );
@@ -1082,8 +1082,8 @@ public class ExpressionsTest extends CalciteTestBase
             ColumnType.LONG,
             (args) -> "(cast(cast(" + args.get(0).getExpression() + " * 1,'long'),'double') / 1)",
             ImmutableList.of(
-                DruidExpression.ofColumn(ColumnType.LONG, "y")
-            )
+                DruidExpression.ofColumn(ColumnType.LONG, "y", true)
+            ), true
         ),
         3.0
     );
@@ -1095,8 +1095,8 @@ public class ExpressionsTest extends CalciteTestBase
             ColumnType.FLOAT,
             (args) -> "(cast(cast(" + args.get(0).getExpression() + " * 1,'long'),'double') / 1)",
             ImmutableList.of(
-                DruidExpression.ofColumn(ColumnType.FLOAT, "z")
-            )
+                DruidExpression.ofColumn(ColumnType.FLOAT, "z", true)
+            ), true
         ),
         -2.0
     );
@@ -1111,9 +1111,9 @@ public class ExpressionsTest extends CalciteTestBase
             ColumnType.FLOAT,
             (args) -> "(cast(cast(" + args.get(0).getExpression() + " * 10.0,'long'),'double') / 10.0)",
             ImmutableList.of(
-                DruidExpression.ofColumn(ColumnType.FLOAT, "x"),
-                DruidExpression.ofLiteral(ColumnType.LONG, DruidExpression.longLiteral(1))
-            )
+                DruidExpression.ofColumn(ColumnType.FLOAT, "x", true),
+                DruidExpression.ofLiteral(ColumnType.LONG, DruidExpression.longLiteral(1), true)
+            ), true
         ),
         2.2
     );
@@ -1128,9 +1128,9 @@ public class ExpressionsTest extends CalciteTestBase
             ColumnType.FLOAT,
             (args) -> "(cast(cast(" + args.get(0).getExpression() + " * 10.0,'long'),'double') / 10.0)",
             ImmutableList.of(
-                DruidExpression.ofColumn(ColumnType.FLOAT, "z"),
-                DruidExpression.ofLiteral(ColumnType.LONG, DruidExpression.longLiteral(1))
-            )
+                DruidExpression.ofColumn(ColumnType.FLOAT, "z", true),
+                DruidExpression.ofLiteral(ColumnType.LONG, DruidExpression.longLiteral(1), true)
+            ), true
         ),
         -2.2
     );
@@ -1145,9 +1145,9 @@ public class ExpressionsTest extends CalciteTestBase
             ColumnType.LONG,
             (args) -> "(cast(cast(" + args.get(0).getExpression() + " * 0.1,'long'),'double') / 0.1)",
             ImmutableList.of(
-                DruidExpression.ofColumn(ColumnType.LONG, "b"),
-                DruidExpression.ofLiteral(ColumnType.LONG, DruidExpression.longLiteral(-1))
-            )
+                DruidExpression.ofColumn(ColumnType.LONG, "b", true),
+                DruidExpression.ofLiteral(ColumnType.LONG, DruidExpression.longLiteral(-1), true)
+            ), true
         ),
         20.0
     );
@@ -1162,9 +1162,9 @@ public class ExpressionsTest extends CalciteTestBase
             ColumnType.FLOAT,
             (args) -> "(cast(cast(" + args.get(0).getExpression() + " * 0.1,'long'),'double') / 0.1)",
             ImmutableList.of(
-                DruidExpression.ofColumn(ColumnType.FLOAT, "z"),
-                DruidExpression.ofLiteral(ColumnType.LONG, DruidExpression.longLiteral(-1))
-            )
+                DruidExpression.ofColumn(ColumnType.FLOAT, "z", true),
+                DruidExpression.ofLiteral(ColumnType.LONG, DruidExpression.longLiteral(-1), true)
+            ), true
         ),
         0.0
     );
@@ -1182,8 +1182,8 @@ public class ExpressionsTest extends CalciteTestBase
             ColumnType.LONG,
             DruidExpression.functionCall("round"),
             ImmutableList.of(
-                DruidExpression.ofColumn(ColumnType.LONG, "a")
-            )
+                DruidExpression.ofColumn(ColumnType.LONG, "a", true)
+            ), true
         ),
         10L
     );
@@ -1195,8 +1195,8 @@ public class ExpressionsTest extends CalciteTestBase
             ColumnType.LONG,
             DruidExpression.functionCall("round"),
             ImmutableList.of(
-                DruidExpression.ofColumn(ColumnType.LONG, "b")
-            )
+                DruidExpression.ofColumn(ColumnType.LONG, "b", true)
+            ), true
         ),
         25L
     );
@@ -1211,9 +1211,9 @@ public class ExpressionsTest extends CalciteTestBase
             ColumnType.LONG,
             DruidExpression.functionCall("round"),
             ImmutableList.of(
-                DruidExpression.ofColumn(ColumnType.LONG, "b"),
-                DruidExpression.ofLiteral(ColumnType.LONG, DruidExpression.longLiteral(-1))
-            )
+                DruidExpression.ofColumn(ColumnType.LONG, "b", true),
+                DruidExpression.ofLiteral(ColumnType.LONG, DruidExpression.longLiteral(-1), true)
+            ), true
         ),
         30L
     );
@@ -1225,8 +1225,8 @@ public class ExpressionsTest extends CalciteTestBase
             ColumnType.FLOAT,
             DruidExpression.functionCall("round"),
             ImmutableList.of(
-                DruidExpression.ofColumn(ColumnType.FLOAT, "x")
-            )
+                DruidExpression.ofColumn(ColumnType.FLOAT, "x", true)
+            ), true
         ),
         2.0
     );
@@ -1241,9 +1241,9 @@ public class ExpressionsTest extends CalciteTestBase
             ColumnType.FLOAT,
             DruidExpression.functionCall("round"),
             ImmutableList.of(
-                DruidExpression.ofColumn(ColumnType.FLOAT, "x"),
-                DruidExpression.ofLiteral(ColumnType.LONG, DruidExpression.longLiteral(1))
-            )
+                DruidExpression.ofColumn(ColumnType.FLOAT, "x", true),
+                DruidExpression.ofLiteral(ColumnType.LONG, DruidExpression.longLiteral(1), true)
+            ), true
         ),
         2.3
     );
@@ -1255,8 +1255,8 @@ public class ExpressionsTest extends CalciteTestBase
             ColumnType.LONG,
             DruidExpression.functionCall("round"),
             ImmutableList.of(
-                DruidExpression.ofColumn(ColumnType.LONG, "y")
-            )
+                DruidExpression.ofColumn(ColumnType.LONG, "y", true)
+            ), true
         ),
         3L
     );
@@ -1268,8 +1268,8 @@ public class ExpressionsTest extends CalciteTestBase
             ColumnType.FLOAT,
             DruidExpression.functionCall("round"),
             ImmutableList.of(
-                DruidExpression.ofColumn(ColumnType.FLOAT, "z")
-            )
+                DruidExpression.ofColumn(ColumnType.FLOAT, "z", true)
+            ), true
         ),
         -2.0
     );
@@ -1292,9 +1292,9 @@ public class ExpressionsTest extends CalciteTestBase
                 ColumnType.FLOAT,
                 DruidExpression.functionCall("round"),
                 ImmutableList.of(
-                    DruidExpression.ofColumn(ColumnType.FLOAT, "x"),
-                    DruidExpression.ofStringLiteral("foo")
-                )
+                    DruidExpression.ofColumn(ColumnType.FLOAT, "x", true),
+                    DruidExpression.ofStringLiteral("foo", true)
+                ), true
             ),
             "IAE Exception"
         )
@@ -1314,8 +1314,8 @@ public class ExpressionsTest extends CalciteTestBase
             ColumnType.DOUBLE,
             DruidExpression.functionCall("round"),
             ImmutableList.of(
-                DruidExpression.ofColumn(ColumnType.DOUBLE, "nan")
-            )
+                DruidExpression.ofColumn(ColumnType.DOUBLE, "nan", true)
+            ), true
         ),
         0D
     );
@@ -1326,8 +1326,8 @@ public class ExpressionsTest extends CalciteTestBase
             ColumnType.FLOAT,
             DruidExpression.functionCall("round"),
             ImmutableList.of(
-                DruidExpression.ofColumn(ColumnType.FLOAT, "fnan")
-            )
+                DruidExpression.ofColumn(ColumnType.FLOAT, "fnan", true)
+            ), true
         ),
         0D
     );
@@ -1346,8 +1346,8 @@ public class ExpressionsTest extends CalciteTestBase
             ColumnType.DOUBLE,
             DruidExpression.functionCall("round"),
             ImmutableList.of(
-                DruidExpression.ofColumn(ColumnType.DOUBLE, "inf")
-            )
+                DruidExpression.ofColumn(ColumnType.DOUBLE, "inf", true)
+            ), true
         ),
         Double.MAX_VALUE
     );
@@ -1358,8 +1358,8 @@ public class ExpressionsTest extends CalciteTestBase
             ColumnType.DOUBLE,
             DruidExpression.functionCall("round"),
             ImmutableList.of(
-                DruidExpression.ofColumn(ColumnType.DOUBLE, "-inf")
-            )
+                DruidExpression.ofColumn(ColumnType.DOUBLE, "-inf", true)
+            ), true
         ),
         -1 * Double.MAX_VALUE
     );
@@ -1370,8 +1370,8 @@ public class ExpressionsTest extends CalciteTestBase
             ColumnType.FLOAT,
             DruidExpression.functionCall("round"),
             ImmutableList.of(
-                DruidExpression.ofColumn(ColumnType.FLOAT, "finf")
-            )
+                DruidExpression.ofColumn(ColumnType.FLOAT, "finf", true)
+            ), true
         ),
         Double.MAX_VALUE
     );
@@ -1382,8 +1382,8 @@ public class ExpressionsTest extends CalciteTestBase
             ColumnType.FLOAT,
             DruidExpression.functionCall("round"),
             ImmutableList.of(
-                DruidExpression.ofColumn(ColumnType.FLOAT, "-finf")
-            )
+                DruidExpression.ofColumn(ColumnType.FLOAT, "-finf", true)
+            ), true
         ),
         -1 * Double.MAX_VALUE
     );
@@ -1907,9 +1907,9 @@ public class ExpressionsTest extends CalciteTestBase
             ColumnType.LONG,
             (args) -> "(" + args.get(0).getExpression() + " - " + args.get(1).getExpression() + ")",
             ImmutableList.of(
-                DruidExpression.ofColumn(ColumnType.LONG, "t"),
-                DruidExpression.ofLiteral(ColumnType.LONG, "90060000")
-            )
+                DruidExpression.ofColumn(ColumnType.LONG, "t", true),
+                DruidExpression.ofLiteral(ColumnType.LONG, "90060000", true)
+            ), true
         ),
         DateTimes.of("2000-02-03T04:05:06").minus(period).getMillis()
     );
@@ -1934,11 +1934,11 @@ public class ExpressionsTest extends CalciteTestBase
             ColumnType.LONG,
             DruidExpression.functionCall("timestamp_shift"),
             ImmutableList.of(
-                DruidExpression.ofColumn(ColumnType.LONG, "t"),
-                DruidExpression.ofLiteral(ColumnType.STRING, DruidExpression.stringLiteral("P13M")),
-                DruidExpression.ofLiteral(ColumnType.LONG, DruidExpression.longLiteral(-1)),
-                DruidExpression.ofStringLiteral("UTC")
-            )
+                DruidExpression.ofColumn(ColumnType.LONG, "t", true),
+                DruidExpression.ofLiteral(ColumnType.STRING, DruidExpression.stringLiteral("P13M"), true),
+                DruidExpression.ofLiteral(ColumnType.LONG, DruidExpression.longLiteral(-1), true),
+                DruidExpression.ofStringLiteral("UTC", true)
+            ), true
         ),
         DateTimes.of("2000-02-03T04:05:06").minus(period).getMillis()
     );
@@ -2029,7 +2029,8 @@ public class ExpressionsTest extends CalciteTestBase
         DruidExpression.ofColumn(
             ColumnType.LONG,
             "t",
-            SimpleExtraction.of("t", null)
+            SimpleExtraction.of("t", null),
+            true
         ),
         DateTimes.of("2000-02-03T04:05:06Z").getMillis()
     );
@@ -2043,10 +2044,10 @@ public class ExpressionsTest extends CalciteTestBase
             ColumnType.LONG,
             DruidExpression.functionCall("timestamp_parse"),
             ImmutableList.of(
-                DruidExpression.ofColumn(ColumnType.STRING, "tstr"),
-                DruidExpression.ofLiteral(null, DruidExpression.nullLiteral()),
-                DruidExpression.ofStringLiteral("UTC")
-            )
+                DruidExpression.ofColumn(ColumnType.STRING, "tstr", true),
+                DruidExpression.ofLiteral(null, DruidExpression.nullLiteral(), true),
+                DruidExpression.ofStringLiteral("UTC", true)
+            ), true
         ),
         DateTimes.of("2000-02-03T04:05:06Z").getMillis()
     );
@@ -2067,10 +2068,10 @@ public class ExpressionsTest extends CalciteTestBase
             ColumnType.STRING,
             DruidExpression.functionCall("timestamp_format"),
             ImmutableList.of(
-                DruidExpression.ofColumn(ColumnType.LONG, "t"),
-                DruidExpression.ofStringLiteral("yyyy-MM-dd HH:mm:ss"),
-                DruidExpression.ofStringLiteral("UTC")
-            )
+                DruidExpression.ofColumn(ColumnType.LONG, "t", true),
+                DruidExpression.ofStringLiteral("yyyy-MM-dd HH:mm:ss", true),
+                DruidExpression.ofStringLiteral("UTC", true)
+            ), true
         ),
         "2000-02-03 04:05:06"
     );
@@ -2083,7 +2084,7 @@ public class ExpressionsTest extends CalciteTestBase
                 testHelper.makeInputRef("t")
             )
         ),
-        DruidExpression.ofColumn(ColumnType.LONG, "t", SimpleExtraction.of("t", null)),
+        DruidExpression.ofColumn(ColumnType.LONG, "t", SimpleExtraction.of("t", null), true),
         DateTimes.of("2000-02-03T04:05:06").getMillis()
     );
   }
@@ -2100,11 +2101,11 @@ public class ExpressionsTest extends CalciteTestBase
             ColumnType.LONG,
             DruidExpression.functionCall("timestamp_floor"),
             ImmutableList.of(
-                DruidExpression.ofColumn(ColumnType.LONG, "t"),
-                DruidExpression.ofStringLiteral("P1D"),
-                DruidExpression.ofLiteral(ColumnType.LONG, DruidExpression.nullLiteral()),
-                DruidExpression.ofStringLiteral("UTC")
-            )
+                DruidExpression.ofColumn(ColumnType.LONG, "t", true),
+                DruidExpression.ofStringLiteral("P1D", true),
+                DruidExpression.ofLiteral(ColumnType.LONG, DruidExpression.nullLiteral(), true),
+                DruidExpression.ofStringLiteral("UTC", true)
+            ), true
         ),
         DateTimes.of("2000-02-03").getMillis()
     );
@@ -2122,15 +2123,15 @@ public class ExpressionsTest extends CalciteTestBase
                     ColumnType.LONG,
                     DruidExpression.functionCall("timestamp_parse"),
                     ImmutableList.of(
-                        DruidExpression.ofColumn(ColumnType.STRING, "dstr"),
-                        DruidExpression.ofLiteral(null, DruidExpression.nullLiteral()),
-                        DruidExpression.ofStringLiteral("UTC")
-                    )
+                        DruidExpression.ofColumn(ColumnType.STRING, "dstr", true),
+                        DruidExpression.ofLiteral(null, DruidExpression.nullLiteral(), true),
+                        DruidExpression.ofStringLiteral("UTC", true)
+                    ), true
                 ),
-                DruidExpression.ofStringLiteral("P1D"),
-                DruidExpression.ofLiteral(ColumnType.LONG, DruidExpression.nullLiteral()),
-                DruidExpression.ofStringLiteral("UTC")
-            )
+                DruidExpression.ofStringLiteral("P1D", true),
+                DruidExpression.ofLiteral(ColumnType.LONG, DruidExpression.nullLiteral(), true),
+                DruidExpression.ofStringLiteral("UTC", true)
+            ), true
         ),
         DateTimes.of("2000-02-03").getMillis()
     );
@@ -2155,15 +2156,15 @@ public class ExpressionsTest extends CalciteTestBase
                     ColumnType.LONG,
                     DruidExpression.functionCall("timestamp_floor"),
                     ImmutableList.of(
-                        DruidExpression.ofColumn(ColumnType.LONG, "t"),
-                        DruidExpression.ofStringLiteral("P1D"),
-                        DruidExpression.ofLiteral(ColumnType.LONG, DruidExpression.nullLiteral()),
-                        DruidExpression.ofStringLiteral("UTC")
-                    )
+                        DruidExpression.ofColumn(ColumnType.LONG, "t", true),
+                        DruidExpression.ofStringLiteral("P1D", true),
+                        DruidExpression.ofLiteral(ColumnType.LONG, DruidExpression.nullLiteral(), true),
+                        DruidExpression.ofStringLiteral("UTC", true)
+                    ), true
                 ),
-                DruidExpression.ofStringLiteral("yyyy-MM-dd"),
-                DruidExpression.ofStringLiteral("UTC")
-            )
+                DruidExpression.ofStringLiteral("yyyy-MM-dd", true),
+                DruidExpression.ofStringLiteral("UTC", true)
+            ), true
         ),
         "2000-02-03"
     );
@@ -2180,11 +2181,11 @@ public class ExpressionsTest extends CalciteTestBase
             ColumnType.LONG,
             DruidExpression.functionCall("timestamp_floor"),
             ImmutableList.of(
-                DruidExpression.ofColumn(ColumnType.LONG, "t"),
-                DruidExpression.ofStringLiteral("P1D"),
-                DruidExpression.ofLiteral(ColumnType.LONG, DruidExpression.nullLiteral()),
-                DruidExpression.ofStringLiteral("UTC")
-            )
+                DruidExpression.ofColumn(ColumnType.LONG, "t", true),
+                DruidExpression.ofStringLiteral("P1D", true),
+                DruidExpression.ofLiteral(ColumnType.LONG, DruidExpression.nullLiteral(), true),
+                DruidExpression.ofStringLiteral("UTC", true)
+            ), true
         ),
         DateTimes.of("2000-02-03").getMillis()
     );
@@ -2200,8 +2201,8 @@ public class ExpressionsTest extends CalciteTestBase
             ColumnType.STRING,
             DruidExpression.functionCall("reverse"),
             ImmutableList.of(
-                DruidExpression.ofColumn(ColumnType.STRING, "s")
-            )
+                DruidExpression.ofColumn(ColumnType.STRING, "s", true)
+            ), true
         ),
         "oof"
     );
@@ -2213,8 +2214,8 @@ public class ExpressionsTest extends CalciteTestBase
             ColumnType.STRING,
             DruidExpression.functionCall("reverse"),
             ImmutableList.of(
-                DruidExpression.ofColumn(ColumnType.STRING, "spacey")
-            )
+                DruidExpression.ofColumn(ColumnType.STRING, "spacey", true)
+            ), true
         ),
         "  ereht yeh  "
     );
@@ -2226,8 +2227,8 @@ public class ExpressionsTest extends CalciteTestBase
             ColumnType.STRING,
             DruidExpression.functionCall("reverse"),
             ImmutableList.of(
-                DruidExpression.ofColumn(ColumnType.STRING, "tstr")
-            )
+                DruidExpression.ofColumn(ColumnType.STRING, "tstr", true)
+            ), true
         ),
         "60:50:40 30-20-0002"
     );
@@ -2239,8 +2240,8 @@ public class ExpressionsTest extends CalciteTestBase
             ColumnType.STRING,
             DruidExpression.functionCall("reverse"),
             ImmutableList.of(
-                DruidExpression.ofColumn(ColumnType.STRING, "dstr")
-            )
+                DruidExpression.ofColumn(ColumnType.STRING, "dstr", true)
+            ), true
         ),
         "30-20-0002"
     );
@@ -2258,8 +2259,8 @@ public class ExpressionsTest extends CalciteTestBase
                 ColumnType.STRING,
                 DruidExpression.functionCall("reverse"),
                 ImmutableList.of(
-                    DruidExpression.ofColumn(ColumnType.LONG, "a")
-                )
+                    DruidExpression.ofColumn(ColumnType.LONG, "a", true)
+                ), true
             ),
             null
         )

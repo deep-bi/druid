@@ -59,7 +59,8 @@ DruidProject(dim1=[$0], dim2=[$1], k=[$3], v=[$4], druid=[logical])
           "type" : "expression",
           "name" : "v0",
           "expression" : "substring(\"dim2\", 0, 1)",
-          "outputType" : "STRING"
+          "outputType" : "STRING",
+          "enableBitmapIndexes" : true
         } ],
         "resultFormat" : "compactedList",
         "columns" : [ "dim1", "dim2", "v0" ],

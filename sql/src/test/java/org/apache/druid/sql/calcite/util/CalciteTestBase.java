@@ -98,7 +98,7 @@ public abstract class CalciteTestBase
   @Deprecated
   public static DruidExpression makeColumnExpression(final String column)
   {
-    return DruidExpression.ofColumn(ColumnType.STRING, column);
+    return DruidExpression.ofColumn(ColumnType.STRING, column, true);
   }
 
   /**
@@ -146,7 +146,8 @@ public abstract class CalciteTestBase
         columnType,
         simpleExtraction,
         (args) -> staticExpression,
-        Collections.emptyList()
+        Collections.emptyList(),
+        true
     );
   }
 

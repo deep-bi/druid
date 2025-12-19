@@ -71,6 +71,6 @@ public class TimeCeilOperatorConversion implements SqlOperatorConversion
       return null;
     }
 
-    return DruidExpression.ofFunctionCall(Calcites.getColumnTypeForRelDataType(rexNode.getType()), "timestamp_ceil", functionArgs);
+    return DruidExpression.ofFunctionCall(Calcites.getColumnTypeForRelDataType(rexNode.getType()), "timestamp_ceil", functionArgs, plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex());
   }
 }

@@ -70,7 +70,8 @@ DruidAggregate(group=[{0}], druid=[logical])
               "type" : "expression",
               "name" : "v0",
               "expression" : "'10.1'",
-              "outputType" : "STRING"
+              "outputType" : "STRING",
+              "enableBitmapIndexes" : true
             } ],
             "resultFormat" : "compactedList",
             "filter" : {
@@ -144,7 +145,8 @@ DruidAggregate(group=[{0}], druid=[logical])
     "type" : "expression",
     "name" : "v0",
     "expression" : "'10.1'",
-    "outputType" : "STRING"
+    "outputType" : "STRING",
+    "enableBitmapIndexes" : true
   } ],
   "granularity" : {
     "type" : "all"

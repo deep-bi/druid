@@ -83,7 +83,8 @@ public class DirectOperatorConversion implements SqlOperatorConversion
         operands -> DruidExpression.ofFunctionCall(
             Calcites.getColumnTypeForRelDataType(rexNode.getType()),
             druidFunctionName,
-            operands
+            operands,
+            plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex()
         ),
         postAggregatorVisitor
     );
