@@ -120,7 +120,8 @@ DruidProject(dim1=[$1], EXPR$1=[EXTRACT(FLAG(MONTH), $0)], druid=[logical])
     "type" : "expression",
     "name" : "v0",
     "expression" : "timestamp_extract(\"__time\",'MONTH','UTC')",
-    "outputType" : "LONG"
+    "outputType" : "LONG",
+    "enableBitmapIndexes" : true
   } ],
   "resultFormat" : "compactedList",
   "columns" : [ "dim1", "v0" ],

@@ -74,7 +74,8 @@ DruidProject(d3=[$1], druid=[logical])
       "type" : "expression",
       "name" : "j0.unnest",
       "expression" : "mv_to_array(\"dim3\")",
-      "outputType" : "ARRAY<STRING>"
+      "outputType" : "ARRAY<STRING>",
+      "enableBitmapIndexes" : true
     },
     "unnestFilter" : null
   },

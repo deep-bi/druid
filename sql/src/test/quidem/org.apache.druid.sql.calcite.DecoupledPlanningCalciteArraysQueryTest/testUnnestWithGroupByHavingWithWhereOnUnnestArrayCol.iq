@@ -42,7 +42,8 @@ DruidAggregate(group=[{1}], EXPR$1=[COUNT()], druid=[logical])
       "type" : "expression",
       "name" : "j0.unnest",
       "expression" : "\"arrayLongNulls\"",
-      "outputType" : "ARRAY<LONG>"
+      "outputType" : "ARRAY<LONG>",
+      "enableBitmapIndexes" : true
     },
     "unnestFilter" : {
       "type" : "equals",

@@ -79,7 +79,8 @@ DruidProject(dimZipf=[$0], dim3_unnest1=[$1], dim3_unnest2=[$2], dim3_unnest3=[$
             "type" : "expression",
             "name" : "j0.unnest",
             "expression" : "mv_to_array(\"dimMultivalEnumerated\")",
-            "outputType" : "ARRAY<STRING>"
+            "outputType" : "ARRAY<STRING>",
+            "enableBitmapIndexes" : true
           },
           "unnestFilter" : null
         },
@@ -87,7 +88,8 @@ DruidProject(dimZipf=[$0], dim3_unnest1=[$1], dim3_unnest2=[$2], dim3_unnest3=[$
           "type" : "expression",
           "name" : "_j0.unnest",
           "expression" : "mv_to_array(\"dimMultivalEnumerated\")",
-          "outputType" : "ARRAY<STRING>"
+          "outputType" : "ARRAY<STRING>",
+          "enableBitmapIndexes" : true
         },
         "unnestFilter" : null
       },
@@ -110,7 +112,8 @@ DruidProject(dimZipf=[$0], dim3_unnest1=[$1], dim3_unnest2=[$2], dim3_unnest3=[$
       "type" : "expression",
       "name" : "__j0.unnest",
       "expression" : "mv_to_array(\"dimMultivalEnumerated\")",
-      "outputType" : "ARRAY<STRING>"
+      "outputType" : "ARRAY<STRING>",
+      "enableBitmapIndexes" : true
     },
     "unnestFilter" : {
       "type" : "equals",

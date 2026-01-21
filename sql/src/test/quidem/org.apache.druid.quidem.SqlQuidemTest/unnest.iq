@@ -57,7 +57,8 @@ LogicalProject(d3=[$17])
       "type" : "expression",
       "name" : "j0.unnest",
       "expression" : "\"dim3\"",
-      "outputType" : "STRING"
+      "outputType" : "STRING",
+      "enableBitmapIndexes" : true
     },
     "unnestFilter" : null
   },

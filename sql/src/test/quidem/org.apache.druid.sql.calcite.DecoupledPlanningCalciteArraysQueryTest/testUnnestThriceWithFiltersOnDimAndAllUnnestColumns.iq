@@ -67,7 +67,8 @@ DruidProject(dimZipf=[$0], dim3_unnest1=[CAST('Baz':VARCHAR):VARCHAR], dim3_unne
           "type" : "expression",
           "name" : "j0.unnest",
           "expression" : "mv_to_array(\"dimMultivalEnumerated\")",
-          "outputType" : "ARRAY<STRING>"
+          "outputType" : "ARRAY<STRING>",
+          "enableBitmapIndexes" : true
         },
         "unnestFilter" : {
           "type" : "equals",
@@ -80,7 +81,8 @@ DruidProject(dimZipf=[$0], dim3_unnest1=[CAST('Baz':VARCHAR):VARCHAR], dim3_unne
         "type" : "expression",
         "name" : "j0.unnest",
         "expression" : "mv_to_array(\"dimMultivalEnumerated\")",
-        "outputType" : "ARRAY<STRING>"
+        "outputType" : "ARRAY<STRING>",
+        "enableBitmapIndexes" : true
       },
       "unnestFilter" : {
         "type" : "equals",
@@ -93,7 +95,8 @@ DruidProject(dimZipf=[$0], dim3_unnest1=[CAST('Baz':VARCHAR):VARCHAR], dim3_unne
       "type" : "expression",
       "name" : "_j0.unnest",
       "expression" : "mv_to_array(\"dimMultivalEnumerated\")",
-      "outputType" : "ARRAY<STRING>"
+      "outputType" : "ARRAY<STRING>",
+      "enableBitmapIndexes" : true
     },
     "unnestFilter" : {
       "type" : "equals",
@@ -110,7 +113,8 @@ DruidProject(dimZipf=[$0], dim3_unnest1=[CAST('Baz':VARCHAR):VARCHAR], dim3_unne
     "type" : "expression",
     "name" : "v0",
     "expression" : "'Baz'",
-    "outputType" : "STRING"
+    "outputType" : "STRING",
+    "enableBitmapIndexes" : true
   } ],
   "resultFormat" : "compactedList",
   "columns" : [ "dimZipf", "v0", "j0.unnest", "_j0.unnest" ],

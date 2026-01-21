@@ -76,7 +76,8 @@ DruidProject(arrayString=[CAST(ARRAY('a':VARCHAR, 'b':VARCHAR)):VARCHAR ARRAY], 
             "type" : "expression",
             "name" : "j0.unnest",
             "expression" : "\"arrayLongNulls\"",
-            "outputType" : "ARRAY<LONG>"
+            "outputType" : "ARRAY<LONG>",
+            "enableBitmapIndexes" : true
           },
           "unnestFilter" : null
         },
@@ -84,7 +85,8 @@ DruidProject(arrayString=[CAST(ARRAY('a':VARCHAR, 'b':VARCHAR)):VARCHAR ARRAY], 
           "type" : "expression",
           "name" : "_j0.unnest",
           "expression" : "\"arrayDoubleNulls\"",
-          "outputType" : "ARRAY<DOUBLE>"
+          "outputType" : "ARRAY<DOUBLE>",
+          "enableBitmapIndexes" : true
         },
         "unnestFilter" : null
       },
@@ -107,7 +109,8 @@ DruidProject(arrayString=[CAST(ARRAY('a':VARCHAR, 'b':VARCHAR)):VARCHAR ARRAY], 
       "type" : "expression",
       "name" : "__j0.unnest",
       "expression" : "\"arrayStringNulls\"",
-      "outputType" : "ARRAY<STRING>"
+      "outputType" : "ARRAY<STRING>",
+      "enableBitmapIndexes" : true
     },
     "unnestFilter" : {
       "type" : "equals",
@@ -124,7 +127,8 @@ DruidProject(arrayString=[CAST(ARRAY('a':VARCHAR, 'b':VARCHAR)):VARCHAR ARRAY], 
     "type" : "expression",
     "name" : "v0",
     "expression" : "array('a','b')",
-    "outputType" : "ARRAY<STRING>"
+    "outputType" : "ARRAY<STRING>",
+    "enableBitmapIndexes" : true
   } ],
   "resultFormat" : "compactedList",
   "columns" : [ "v0", "j0.unnest", "_j0.unnest", "__j0.unnest" ],
