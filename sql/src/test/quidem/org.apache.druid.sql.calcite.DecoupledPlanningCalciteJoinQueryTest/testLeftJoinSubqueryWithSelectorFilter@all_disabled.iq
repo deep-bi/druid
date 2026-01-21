@@ -67,7 +67,8 @@ DruidJoin(condition=[=($0, $1)], joinType=[inner])
           "type" : "expression",
           "name" : "v0",
           "expression" : "concat(\"k\",'')",
-          "outputType" : "STRING"
+          "outputType" : "STRING",
+          "enableBitmapIndexes" : true
         } ],
         "granularity" : {
           "type" : "all"

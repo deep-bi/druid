@@ -61,7 +61,8 @@ DruidAggregate(group=[{0}], EXPR$1=[COUNT()], druid=[logical])
           "type" : "expression",
           "name" : "v0",
           "expression" : "substring(\"dim2\", 0, 1)",
-          "outputType" : "STRING"
+          "outputType" : "STRING",
+          "enableBitmapIndexes" : true
         } ],
         "resultFormat" : "compactedList",
         "columns" : [ "dim2", "v0" ],

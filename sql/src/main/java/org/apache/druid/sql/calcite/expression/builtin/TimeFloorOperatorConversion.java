@@ -90,21 +90,23 @@ public class TimeFloorOperatorConversion implements SqlOperatorConversion
         }
       }
     }
+    final boolean calculateExpressionBitmapIndex = plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex();
 
     return DruidExpression.ofFunctionCall(
         input.getDruidType(),
         "timestamp_floor",
         ImmutableList.of(
             input,
-            DruidExpression.ofStringLiteral(granularity.getPeriod().toString()),
+            DruidExpression.ofStringLiteral(granularity.getPeriod().toString(), calculateExpressionBitmapIndex),
             DruidExpression.ofLiteral(
                 ColumnType.LONG,
                 granularity.getOrigin() == null
                 ? DruidExpression.nullLiteral()
-                : DruidExpression.longLiteral(granularity.getOrigin().getMillis())
+                : DruidExpression.longLiteral(granularity.getOrigin().getMillis()),
+                calculateExpressionBitmapIndex
             ),
-            DruidExpression.ofStringLiteral(granularity.getTimeZone().toString())
-        )
+            DruidExpression.ofStringLiteral(granularity.getTimeZone().toString(), calculateExpressionBitmapIndex)
+        ), calculateExpressionBitmapIndex
     );
   }
 
@@ -128,6 +130,7 @@ public class TimeFloorOperatorConversion implements SqlOperatorConversion
 
     // Period
     final RexNode periodOperand = operands.get(1);
+    final boolean calculateExpressionBitmapIndex = plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex();
     if (periodOperand.isA(SqlKind.LITERAL) && RexLiteral.value(periodOperand) instanceof TimeUnitRange) {
       // TimeUnitRange literals are used by FLOOR(t TO unit) and CEIL(t TO unit)
       final Period period = TimeUnits.toPeriod((TimeUnitRange) RexLiteral.value(periodOperand));
@@ -137,7 +140,7 @@ public class TimeFloorOperatorConversion implements SqlOperatorConversion
         return null;
       }
 
-      functionArgs.add(DruidExpression.ofStringLiteral(period.toString()));
+      functionArgs.add(DruidExpression.ofStringLiteral(period.toString(), calculateExpressionBitmapIndex));
     } else {
       // Other literal types are used by TIME_FLOOR and TIME_CEIL
       functionArgs.add(Expressions.toDruidExpression(plannerContext, rowSignature, periodOperand));
@@ -154,13 +157,13 @@ public class TimeFloorOperatorConversion implements SqlOperatorConversion
                     Calcites.getColumnTypeForRelDataType(operand.getType()),
                     DruidExpression.longLiteral(
                         Calcites.calciteDateTimeLiteralToJoda(operand, plannerContext.getTimeZone()).getMillis()
-                    )
+                    ), calculateExpressionBitmapIndex
                 );
               } else {
                 return Expressions.toDruidExpression(plannerContext, rowSignature, operand);
               }
             },
-            DruidExpression.ofLiteral(null, DruidExpression.nullLiteral())
+            DruidExpression.ofLiteral(null, DruidExpression.nullLiteral(), calculateExpressionBitmapIndex)
         )
     );
 
@@ -170,7 +173,7 @@ public class TimeFloorOperatorConversion implements SqlOperatorConversion
             operands,
             3,
             operand -> Expressions.toDruidExpression(plannerContext, rowSignature, operand),
-            DruidExpression.ofStringLiteral(plannerContext.getTimeZone().getID())
+            DruidExpression.ofStringLiteral(plannerContext.getTimeZone().getID(), calculateExpressionBitmapIndex)
         )
     );
 
@@ -210,11 +213,13 @@ public class TimeFloorOperatorConversion implements SqlOperatorConversion
     if (functionArgs == null) {
       return null;
     }
+    final boolean calculateExpressionBitmapIndex = plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex();
 
     return DruidExpression.ofFunctionCall(
         Calcites.getColumnTypeForRelDataType(rexNode.getType()),
         "timestamp_floor",
-        functionArgs
+        functionArgs,
+        calculateExpressionBitmapIndex
     );
   }
 }

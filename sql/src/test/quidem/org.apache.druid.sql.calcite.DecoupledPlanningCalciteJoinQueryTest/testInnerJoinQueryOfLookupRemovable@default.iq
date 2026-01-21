@@ -63,7 +63,8 @@ DruidProject(dim1=[$0], dim2=[$1], sk=[$3], druid=[logical])
           "type" : "expression",
           "name" : "v0",
           "expression" : "substring(\"v\", 0, 3)",
-          "outputType" : "STRING"
+          "outputType" : "STRING",
+          "enableBitmapIndexes" : true
         } ],
         "resultFormat" : "compactedList",
         "columns" : [ "k", "v0" ],

@@ -78,7 +78,8 @@ DruidAggregate(group=[{}], EXPR$0=[COUNT()], druid=[logical])
                 "type" : "expression",
                 "name" : "v0",
                 "expression" : "CAST(\"k\", 'LONG')",
-                "outputType" : "LONG"
+                "outputType" : "LONG",
+                "enableBitmapIndexes" : true
               } ],
               "resultFormat" : "compactedList",
               "columns" : [ "k", "v0" ],
@@ -101,7 +102,8 @@ DruidAggregate(group=[{}], EXPR$0=[COUNT()], druid=[logical])
           "type" : "expression",
           "name" : "v0",
           "expression" : "CAST(\"j0.k\", 'LONG')",
-          "outputType" : "LONG"
+          "outputType" : "LONG",
+          "enableBitmapIndexes" : true
         } ],
         "resultFormat" : "compactedList",
         "columns" : [ "v0" ],

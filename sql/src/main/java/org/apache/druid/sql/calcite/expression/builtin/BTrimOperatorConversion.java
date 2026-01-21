@@ -63,6 +63,7 @@ public class BTrimOperatorConversion implements SqlOperatorConversion
         druidExpressions -> {
           if (druidExpressions.size() > 1) {
             return TrimOperatorConversion.makeTrimExpression(
+                plannerContext,
                 SqlTrimFunction.Flag.BOTH,
                 druidExpressions.get(0),
                 druidExpressions.get(1),
@@ -70,9 +71,10 @@ public class BTrimOperatorConversion implements SqlOperatorConversion
             );
           } else {
             return TrimOperatorConversion.makeTrimExpression(
+                plannerContext,
                 SqlTrimFunction.Flag.BOTH,
                 druidExpressions.get(0),
-                DruidExpression.ofStringLiteral(" "),
+                DruidExpression.ofStringLiteral(" ", plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex()),
                 Calcites.getColumnTypeForRelDataType(rexNode.getType())
             );
           }

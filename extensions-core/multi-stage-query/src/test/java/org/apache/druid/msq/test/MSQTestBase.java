@@ -777,13 +777,13 @@ public class MSQTestBase extends BaseCalciteQueryTest
           @Nullable
           @Override
           public QueryableIndex asQueryableIndex()
-        {
-          return index;
-        }
+          {
+            return index;
+          }
 
-        @Override
-        public CursorFactory asCursorFactory()
-        {
+          @Override
+          public CursorFactory asCursorFactory()
+          {
             return new QueryableIndexCursorFactory(index);
           }
 
