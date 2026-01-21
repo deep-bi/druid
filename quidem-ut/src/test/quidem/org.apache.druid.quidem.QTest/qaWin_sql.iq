@@ -74,7 +74,8 @@ WHERE client_ip IN ('107.13.54.103',
         "type" : "expression",
         "name" : "v0",
         "expression" : "timestamp_floor(\"__time\",'PT12H',null,'UTC')",
-        "outputType" : "LONG"
+        "outputType" : "LONG",
+        "enableBitmapIndexes" : true
       } ],
       "filter" : {
         "type" : "inType",
@@ -276,7 +277,8 @@ WHERE client_ip IN ('107.13.54.103',
         "type" : "expression",
         "name" : "v0",
         "expression" : "timestamp_floor(\"__time\",'PT12H',null,'UTC')",
-        "outputType" : "LONG"
+        "outputType" : "LONG",
+        "enableBitmapIndexes" : true
       } ],
       "filter" : {
         "type" : "inType",
@@ -474,7 +476,8 @@ GROUP BY server_ip,
         "type" : "expression",
         "name" : "v0",
         "expression" : "timestamp_floor(\"__time\",'PT12H',null,'UTC')",
-        "outputType" : "LONG"
+        "outputType" : "LONG",
+        "enableBitmapIndexes" : true
       } ],
       "filter" : {
         "type" : "inType",
@@ -671,7 +674,8 @@ GROUP BY server_ip,
         "type" : "expression",
         "name" : "v0",
         "expression" : "timestamp_floor(\"__time\",'PT12H',null,'UTC')",
-        "outputType" : "LONG"
+        "outputType" : "LONG",
+        "enableBitmapIndexes" : true
       } ],
       "filter" : {
         "type" : "inType",

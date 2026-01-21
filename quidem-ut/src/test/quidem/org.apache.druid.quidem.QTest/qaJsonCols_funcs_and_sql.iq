@@ -8593,7 +8593,8 @@ FROM test_json_cols;
     "type" : "expression",
     "name" : "v0",
     "expression" : "json_object('a',\"c1\")",
-    "outputType" : "COMPLEX<json>"
+    "outputType" : "COMPLEX<json>",
+    "enableBitmapIndexes" : true
   } ],
   "resultFormat" : "compactedList",
   "columns" : [ "v0" ],
@@ -8637,7 +8638,8 @@ FROM test_json_cols;
     "type" : "expression",
     "name" : "v0",
     "expression" : "json_object('a',\"c1\")",
-    "outputType" : "COMPLEX<json>"
+    "outputType" : "COMPLEX<json>",
+    "enableBitmapIndexes" : true
   } ],
   "resultFormat" : "compactedList",
   "columns" : [ "v0" ],
@@ -9352,7 +9354,8 @@ FROM test_json_cols;
     "type" : "expression",
     "name" : "v0",
     "expression" : "parse_json(to_json_string(\"c1\"))",
-    "outputType" : "COMPLEX<json>"
+    "outputType" : "COMPLEX<json>",
+    "enableBitmapIndexes" : true
   } ],
   "resultFormat" : "compactedList",
   "columns" : [ "v0" ],
@@ -10171,7 +10174,8 @@ FROM test_json_cols;
     "type" : "expression",
     "name" : "v0",
     "expression" : "try_parse_json(to_json_string(\"c1\"))",
-    "outputType" : "COMPLEX<json>"
+    "outputType" : "COMPLEX<json>",
+    "enableBitmapIndexes" : true
   } ],
   "resultFormat" : "compactedList",
   "columns" : [ "v0" ],
@@ -11186,7 +11190,8 @@ FROM test_json_cols;
     "type" : "expression",
     "name" : "v0",
     "expression" : "to_json_string(\"c1\")",
-    "outputType" : "STRING"
+    "outputType" : "STRING",
+    "enableBitmapIndexes" : true
   } ],
   "resultFormat" : "compactedList",
   "columns" : [ "v0" ],
@@ -13503,7 +13508,8 @@ FROM test_json_cols;
     "type" : "expression",
     "name" : "v0",
     "expression" : "json_keys(\"c1\",'$.a_obj')",
-    "outputType" : "ARRAY<STRING>"
+    "outputType" : "ARRAY<STRING>",
+    "enableBitmapIndexes" : true
   } ],
   "resultFormat" : "compactedList",
   "columns" : [ "v0" ],
@@ -13547,7 +13553,8 @@ FROM test_json_cols;
     "type" : "expression",
     "name" : "v0",
     "expression" : "json_keys(\"c1\",'$.a_obj.a_str')",
-    "outputType" : "ARRAY<STRING>"
+    "outputType" : "ARRAY<STRING>",
+    "enableBitmapIndexes" : true
   } ],
   "resultFormat" : "compactedList",
   "columns" : [ "v0" ],
@@ -13591,7 +13598,8 @@ FROM test_json_cols;
     "type" : "expression",
     "name" : "v0",
     "expression" : "json_keys(\"c1\",'$.a_obj.a_num_int')",
-    "outputType" : "ARRAY<STRING>"
+    "outputType" : "ARRAY<STRING>",
+    "enableBitmapIndexes" : true
   } ],
   "resultFormat" : "compactedList",
   "columns" : [ "v0" ],
@@ -15263,7 +15271,8 @@ FROM test_json_cols;
     "type" : "expression",
     "name" : "v0",
     "expression" : "json_paths(\"c1\")",
-    "outputType" : "ARRAY<STRING>"
+    "outputType" : "ARRAY<STRING>",
+    "enableBitmapIndexes" : true
   } ],
   "resultFormat" : "compactedList",
   "columns" : [ "v0" ],
