@@ -669,7 +669,8 @@ FROM test_json_cols;
           "type" : "expression",
           "name" : "v0",
           "expression" : "json_object('a',\"c1\")",
-          "outputType" : "COMPLEX<json>"
+          "outputType" : "COMPLEX<json>",
+          "enableBitmapIndexes" : true
         } ],
         "resultFormat" : "compactedList",
         "columns" : [ "v0" ],
@@ -765,7 +766,8 @@ FROM test_json_cols;
           "type" : "expression",
           "name" : "v0",
           "expression" : "json_object('a',\"c1\")",
-          "outputType" : "COMPLEX<json>"
+          "outputType" : "COMPLEX<json>",
+          "enableBitmapIndexes" : true
         } ],
         "resultFormat" : "compactedList",
         "columns" : [ "v0" ],

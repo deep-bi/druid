@@ -71,7 +71,8 @@ FROM test_unnest,
       "type" : "expression",
       "name" : "j0.unnest",
       "expression" : "\"c_mv_complex\"",
-      "outputType" : "STRING"
+      "outputType" : "STRING",
+      "enableBitmapIndexes" : true
     },
     "unnestFilter" : null
   },
@@ -143,7 +144,8 @@ FROM
       "type" : "expression",
       "name" : "j0.unnest",
       "expression" : "\"c_mv_complex\"",
-      "outputType" : "STRING"
+      "outputType" : "STRING",
+      "enableBitmapIndexes" : true
     },
     "unnestFilter" : null
   },
@@ -195,7 +197,8 @@ GROUP BY c;
       "type" : "expression",
       "name" : "j0.unnest",
       "expression" : "\"c_mv_complex\"",
-      "outputType" : "STRING"
+      "outputType" : "STRING",
+      "enableBitmapIndexes" : true
     },
     "unnestFilter" : null
   },

@@ -33,7 +33,8 @@ FROM test_json_cols;
     "type" : "expression",
     "name" : "v0",
     "expression" : "json_paths(\"c1\")",
-    "outputType" : "ARRAY<STRING>"
+    "outputType" : "ARRAY<STRING>",
+    "enableBitmapIndexes" : true
   } ],
   "resultFormat" : "compactedList",
   "columns" : [ "v0" ],

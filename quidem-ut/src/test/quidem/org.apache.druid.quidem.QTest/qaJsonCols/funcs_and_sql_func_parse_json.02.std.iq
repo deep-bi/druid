@@ -107,7 +107,8 @@ FROM test_json_cols;
     "type" : "expression",
     "name" : "v0",
     "expression" : "parse_json(to_json_string(\"c1\"))",
-    "outputType" : "COMPLEX<json>"
+    "outputType" : "COMPLEX<json>",
+    "enableBitmapIndexes" : true
   } ],
   "resultFormat" : "compactedList",
   "columns" : [ "v0" ],
