@@ -50,36 +50,41 @@ public class TimeExtractOperatorConversion implements SqlOperatorConversion
       .build();
 
   public static DruidExpression applyTimeExtract(
+      final PlannerContext plannerContext,
       final DruidExpression timeExpression,
       final TimestampExtractExprMacro.Unit unit,
       final DateTimeZone timeZone
   )
   {
+    final boolean calculateExpressionBitmapIndex = plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex();
+
     return DruidExpression.ofFunctionCall(
         timeExpression.getDruidType(),
         "timestamp_extract",
         ImmutableList.of(
             timeExpression,
-            DruidExpression.ofStringLiteral(unit.name()),
-            DruidExpression.ofStringLiteral(timeZone.getID())
-        )
+            DruidExpression.ofStringLiteral(unit.name(), calculateExpressionBitmapIndex),
+            DruidExpression.ofStringLiteral(timeZone.getID(), calculateExpressionBitmapIndex)
+        ), calculateExpressionBitmapIndex
     );
   }
 
   public static DruidExpression applyTimeExtract(
+      final PlannerContext plannerContext,
       final DruidExpression timeExpression,
       final TimestampExtractExprMacro.Unit unit,
       final DruidExpression timeZoneExpression
   )
   {
+    final boolean calculateExpressionBitmapIndex = plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex();
     return DruidExpression.ofFunctionCall(
         timeExpression.getDruidType(),
         "timestamp_extract",
         ImmutableList.of(
             timeExpression,
-            DruidExpression.ofStringLiteral(unit.name()),
+            DruidExpression.ofStringLiteral(unit.name(), calculateExpressionBitmapIndex),
             timeZoneExpression
-        )
+        ), calculateExpressionBitmapIndex
     );
   }
 
@@ -114,7 +119,7 @@ public class TimeExtractOperatorConversion implements SqlOperatorConversion
           rowSignature,
           timeZoneArg
       );
-      return applyTimeExtract(timeExpression, unit, timeZoneExpression);
+      return applyTimeExtract(plannerContext, timeExpression, unit, timeZoneExpression);
     } else {
       final DateTimeZone timeZone = OperatorConversions.getOperandWithDefault(
           call.getOperands(),
@@ -123,7 +128,7 @@ public class TimeExtractOperatorConversion implements SqlOperatorConversion
           plannerContext.getTimeZone()
       );
 
-      return applyTimeExtract(timeExpression, unit, timeZone);
+      return applyTimeExtract(plannerContext, timeExpression, unit, timeZone);
     }
   }
 }

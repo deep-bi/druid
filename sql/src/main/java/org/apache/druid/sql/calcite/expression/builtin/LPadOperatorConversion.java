@@ -56,6 +56,8 @@ public class LPadOperatorConversion implements SqlOperatorConversion
       final RexNode rexNode
   )
   {
+    final boolean calculateExpressionBitmapIndex = plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex();
+
     return OperatorConversions.convertCall(
         plannerContext,
         rowSignature,
@@ -69,7 +71,7 @@ public class LPadOperatorConversion implements SqlOperatorConversion
                     druidExpressions.get(0),
                     druidExpressions.get(1),
                     druidExpressions.get(2)
-                )
+                ), calculateExpressionBitmapIndex
             );
           } else {
             return DruidExpression.ofFunctionCall(
@@ -78,8 +80,8 @@ public class LPadOperatorConversion implements SqlOperatorConversion
                 ImmutableList.of(
                     druidExpressions.get(0),
                     druidExpressions.get(1),
-                    DruidExpression.ofStringLiteral(" ")
-                )
+                    DruidExpression.ofStringLiteral(" ", calculateExpressionBitmapIndex)
+                ), calculateExpressionBitmapIndex
             );
           }
         }

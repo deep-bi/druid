@@ -59,7 +59,8 @@ public class FloorOperatorConversion implements SqlOperatorConversion
       return DruidExpression.ofFunctionCall(
           Calcites.getColumnTypeForRelDataType(rexNode.getType()),
           "timestamp_floor",
-          TimeFloorOperatorConversion.toTimestampFloorOrCeilArgs(plannerContext, rowSignature, call.getOperands())
+          TimeFloorOperatorConversion.toTimestampFloorOrCeilArgs(plannerContext, rowSignature, call.getOperands()),
+          plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex()
       );
     } else {
       throw new ISE("Unexpected number of arguments");

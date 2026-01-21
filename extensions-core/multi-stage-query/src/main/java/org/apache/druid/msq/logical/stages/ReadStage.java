@@ -78,7 +78,8 @@ public class ReadStage extends AbstractFrameProcessorStage
     VirtualColumnRegistry virtualColumnRegistry = VirtualColumnRegistry.create(
         signature,
         plannerContext.getExpressionParser(),
-        plannerContext.getPlannerConfig().isForceExpressionVirtualColumns()
+        plannerContext.getPlannerConfig().isForceExpressionVirtualColumns(),
+        plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex()
     );
 
     DimFilter dimFilter = DruidQuery.getDimFilter(

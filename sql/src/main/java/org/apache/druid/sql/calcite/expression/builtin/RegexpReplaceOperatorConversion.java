@@ -62,7 +62,8 @@ public class RegexpReplaceOperatorConversion implements SqlOperatorConversion
         arguments -> DruidExpression.ofFunctionCall(
             Calcites.getColumnTypeForRelDataType(rexNode.getType()),
             StringUtils.toLowerCase(SQL_FUNCTION.getName()),
-            arguments
+            arguments,
+            plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex()
         )
     );
   }

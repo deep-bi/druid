@@ -59,12 +59,14 @@ public class VirtualColumnRegistry
   private final String virtualColumnPrefix;
   private int virtualColumnCounter;
   private boolean forceExpressionVirtualColumns;
+  private final boolean calculateExpressionBitmapIndex;
 
   private VirtualColumnRegistry(
       RowSignature baseRowSignature,
       ExpressionParser expressionParser,
       String virtualColumnPrefix,
       boolean forceExpressionVirtualColumns,
+      boolean calculateExpressionBitmapIndex,
       Map<ExpressionAndTypeHint, String> virtualColumnsByExpression,
       Map<String, ExpressionAndTypeHint> virtualColumnsByName
   )
@@ -75,12 +77,14 @@ public class VirtualColumnRegistry
     this.virtualColumnsByExpression = virtualColumnsByExpression;
     this.virtualColumnsByName = virtualColumnsByName;
     this.forceExpressionVirtualColumns = forceExpressionVirtualColumns;
+    this.calculateExpressionBitmapIndex = calculateExpressionBitmapIndex;
   }
 
   public static VirtualColumnRegistry create(
       final RowSignature rowSignature,
       final ExpressionParser expressionParser,
-      final boolean forceExpressionVirtualColumns
+      final boolean forceExpressionVirtualColumns,
+      final boolean calculateExpressionBitmapIndex
   )
   {
     return new VirtualColumnRegistry(
@@ -88,6 +92,7 @@ public class VirtualColumnRegistry
         expressionParser,
         Calcites.findUnusedPrefixForDigits("v", rowSignature.getColumnNames()),
         forceExpressionVirtualColumns,
+        calculateExpressionBitmapIndex,
         new HashMap<>(),
         new HashMap<>()
     );
@@ -168,7 +173,7 @@ public class VirtualColumnRegistry
     DruidExpression expression = registeredColumn.getExpression();
     ColumnType columnType = registeredColumn.getTypeHint();
     return forceExpressionVirtualColumns
-           ? expression.toExpressionVirtualColumn(virtualColumnName, columnType, expressionParser)
+           ? expression.toExpressionVirtualColumn(virtualColumnName, columnType, expressionParser, calculateExpressionBitmapIndex)
            : expression.toVirtualColumn(virtualColumnName, columnType, expressionParser);
   }
 

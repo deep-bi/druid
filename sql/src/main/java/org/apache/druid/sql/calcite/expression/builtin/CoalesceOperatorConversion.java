@@ -80,7 +80,8 @@ public class CoalesceOperatorConversion implements SqlOperatorConversion
         operands -> DruidExpression.ofFunctionCall(
             Calcites.getColumnTypeForRelDataType(rexNode.getType()),
             getNativeFunctionName(rexNode),
-            operands
+            operands,
+            plannerContext.getPlannerConfig().isCalculateExpressionBitmapIndex()
         ),
         postAggregatorVisitor
     );

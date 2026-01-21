@@ -7033,13 +7033,15 @@ public class CalciteArraysQueryTest extends BaseCalciteQueryTest
                                 "v0",
                                 "string_to_array(\"c1\",'<#>')",
                                 ColumnType.STRING_ARRAY,
-                                TestExprMacroTable.INSTANCE
+                                TestExprMacroTable.INSTANCE,
+                                true
                             ),
                             new ExpressionVirtualColumn(
                                 "v1",
                                 "CAST(string_to_array(\"c2\",'<#>'), 'ARRAY<LONG>')",
                                 ColumnType.LONG_ARRAY,
-                                TestExprMacroTable.INSTANCE
+                                TestExprMacroTable.INSTANCE,
+                                true
                             )
                         )
                         .setAggregatorSpecs(
@@ -7152,7 +7154,8 @@ public class CalciteArraysQueryTest extends BaseCalciteQueryTest
                     "v0",
                     "array(1,0,null)",
                     exprEval.toExpr(),
-                    ColumnType.LONG_ARRAY
+                    ColumnType.LONG_ARRAY,
+                    true
                 ))
                 .columns("v0")
                 .columnTypes(ColumnType.LONG_ARRAY)

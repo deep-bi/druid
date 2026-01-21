@@ -60,7 +60,8 @@ DruidSort(sort0=[$0], sort1=[$1], dir0=[ASC], dir1=[DESC], druid=[logical])
         "type" : "expression",
         "name" : "v0",
         "expression" : "timestamp_floor(\"__time\",'P1D',null,'UTC')",
-        "outputType" : "LONG"
+        "outputType" : "LONG",
+        "enableBitmapIndexes" : true
       } ],
       "granularity" : {
         "type" : "all"
@@ -105,7 +106,8 @@ DruidSort(sort0=[$0], sort1=[$1], dir0=[ASC], dir1=[DESC], druid=[logical])
     "type" : "expression",
     "name" : "v0",
     "expression" : "timestamp_floor(\"d0\",'P1M',null,'UTC')",
-    "outputType" : "LONG"
+    "outputType" : "LONG",
+    "enableBitmapIndexes" : true
   } ],
   "granularity" : {
     "type" : "all"

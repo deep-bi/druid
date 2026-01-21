@@ -38,6 +38,7 @@ public class PlannerConfig
   public static final String CTX_COMPUTE_INNER_JOIN_COST_AS_FILTER = "computeInnerJoinCostAsFilter";
   public static final String CTX_KEY_USE_NATIVE_QUERY_EXPLAIN = "useNativeQueryExplain";
   public static final String CTX_KEY_FORCE_EXPRESSION_VIRTUAL_COLUMNS = "forceExpressionVirtualColumns";
+  public static final String CTX_KEY_CALCULATE_EXPRESSION_BITMAP_INDEX = "calculateExpressionBitmapIndex";
   public static final String CTX_MAX_NUMERIC_IN_FILTERS = "maxNumericInFilters";
   public static final String CTX_REQUIRE_TIME_CONDITION = "requireTimeCondition";
   public static final int NUM_FILTER_NOT_USED = -1;
@@ -73,6 +74,8 @@ public class PlannerConfig
 
   @JsonProperty
   private boolean forceExpressionVirtualColumns = false;
+  @JsonProperty
+  private boolean calculateExpressionBitmapIndex = true;
 
   @JsonProperty
   private int maxNumericInFilters = NUM_FILTER_NOT_USED;
@@ -144,6 +147,11 @@ public class PlannerConfig
     return forceExpressionVirtualColumns;
   }
 
+  public boolean isCalculateExpressionBitmapIndex()
+  {
+    return calculateExpressionBitmapIndex;
+  }
+
   public String getNativeQuerySqlPlanningMode()
   {
     return nativeQuerySqlPlanningMode;
@@ -176,6 +184,7 @@ public class PlannerConfig
            && authorizeSystemTablesDirectly == that.authorizeSystemTablesDirectly
            && useNativeQueryExplain == that.useNativeQueryExplain
            && forceExpressionVirtualColumns == that.forceExpressionVirtualColumns
+           && calculateExpressionBitmapIndex == that.calculateExpressionBitmapIndex
            && maxNumericInFilters == that.maxNumericInFilters
            && Objects.equals(sqlTimeZone, that.sqlTimeZone)
            && Objects.equals(nativeQuerySqlPlanningMode, that.nativeQuerySqlPlanningMode);
@@ -197,6 +206,7 @@ public class PlannerConfig
         useNativeQueryExplain,
         forceExpressionVirtualColumns,
         maxNumericInFilters,
+        calculateExpressionBitmapIndex,
         nativeQuerySqlPlanningMode
     );
   }
@@ -245,6 +255,7 @@ public class PlannerConfig
     private boolean authorizeSystemTablesDirectly;
     private boolean useNativeQueryExplain;
     private boolean forceExpressionVirtualColumns;
+    private boolean calculateExpressionBitmapIndex;
     private int maxNumericInFilters;
     private String nativeQuerySqlPlanningMode;
 
@@ -264,6 +275,7 @@ public class PlannerConfig
       authorizeSystemTablesDirectly = base.isAuthorizeSystemTablesDirectly();
       useNativeQueryExplain = base.isUseNativeQueryExplain();
       forceExpressionVirtualColumns = base.isForceExpressionVirtualColumns();
+      calculateExpressionBitmapIndex = base.isCalculateExpressionBitmapIndex();
       maxNumericInFilters = base.getMaxNumericInFilters();
       nativeQuerySqlPlanningMode = base.getNativeQuerySqlPlanningMode();
     }
@@ -377,6 +389,11 @@ public class PlannerConfig
           CTX_KEY_FORCE_EXPRESSION_VIRTUAL_COLUMNS,
           forceExpressionVirtualColumns
       );
+      calculateExpressionBitmapIndex = QueryContexts.parseBoolean(
+          queryContext,
+          CTX_KEY_CALCULATE_EXPRESSION_BITMAP_INDEX,
+          calculateExpressionBitmapIndex
+      );
       final int queryContextMaxNumericInFilters = QueryContexts.parseInt(
           queryContext,
           CTX_MAX_NUMERIC_IN_FILTERS,
@@ -435,6 +452,7 @@ public class PlannerConfig
       config.useNativeQueryExplain = useNativeQueryExplain;
       config.maxNumericInFilters = maxNumericInFilters;
       config.forceExpressionVirtualColumns = forceExpressionVirtualColumns;
+      config.calculateExpressionBitmapIndex = calculateExpressionBitmapIndex;
       config.nativeQuerySqlPlanningMode = nativeQuerySqlPlanningMode;
       return config;
     }
