@@ -59,7 +59,8 @@ DruidUnnest(unnestExpr=[$0])
           "type" : "expression",
           "name" : "v0",
           "expression" : "array(1,2,3)",
-          "outputType" : "ARRAY<LONG>"
+          "outputType" : "ARRAY<LONG>",
+          "enableBitmapIndexes" : true
         } ],
         "granularity" : {
           "type" : "all"
@@ -79,7 +80,8 @@ DruidUnnest(unnestExpr=[$0])
       "type" : "expression",
       "name" : "j0.unnest",
       "expression" : "\"d0\"",
-      "outputType" : "ARRAY<LONG>"
+      "outputType" : "ARRAY<LONG>",
+      "enableBitmapIndexes" : true
     },
     "unnestFilter" : null
   },

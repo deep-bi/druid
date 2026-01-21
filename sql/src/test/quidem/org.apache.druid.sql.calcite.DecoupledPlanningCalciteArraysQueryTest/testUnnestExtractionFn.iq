@@ -44,7 +44,8 @@ DruidProject(EXPR$0=[SUBSTRING($1, 1)], druid=[logical])
       "type" : "expression",
       "name" : "j0.unnest",
       "expression" : "mv_to_array(\"dim3\")",
-      "outputType" : "ARRAY<STRING>"
+      "outputType" : "ARRAY<STRING>",
+      "enableBitmapIndexes" : true
     },
     "unnestFilter" : {
       "type" : "expression",
@@ -59,7 +60,8 @@ DruidProject(EXPR$0=[SUBSTRING($1, 1)], druid=[logical])
     "type" : "expression",
     "name" : "v0",
     "expression" : "substring(\"j0.unnest\", 0, -1)",
-    "outputType" : "STRING"
+    "outputType" : "STRING",
+    "enableBitmapIndexes" : true
   } ],
   "resultFormat" : "compactedList",
   "columns" : [ "v0" ],
