@@ -222,11 +222,31 @@ notice: |
 name: Jackson
 license_category: binary
 module: java-core
+module: extensions/druid-parquet-extensions
 license_name: Apache License version 2.0
-version: 2.12.7
+version: 2.18.4.1
+libraries:
+  - com.fasterxml.jackson.core: jackson-core
+
+---
+
+name: Jackson
+license_category: binary
+module: extensions/druid-parquet-extensions
+license_name: Apache License version 2.0
+version: 2.18.4.1
+libraries:
+  - com.fasterxml.jackson.core: jackson-core
+
+---
+
+name: Jackson
+license_category: binary
+module: java-core
+license_name: Apache License version 2.0
+version: 2.18.4
 libraries:
   - com.fasterxml.jackson.core: jackson-annotations
-  - com.fasterxml.jackson.core: jackson-core
   - com.fasterxml.jackson.dataformat: jackson-dataformat-cbor
   - com.fasterxml.jackson.dataformat: jackson-dataformat-smile
   - com.fasterxml.jackson.dataformat: jackson-dataformat-xml
@@ -266,7 +286,7 @@ name: Jackson
 license_category: binary
 module: java-core
 license_name: Apache License version 2.0
-version: 2.12.7.1
+version: 2.18.4
 libraries:
   - com.fasterxml.jackson.core: jackson-databind
 notice: |
@@ -364,6 +384,16 @@ license_name: Apache License version 2.0
 version: 1.3
 libraries:
   - com.google.j2objc: j2objc-annotations
+
+---
+
+name: jaxb-api
+license_category: binary
+module: core
+license_name: CDDL 1.1
+version: 2.2.12
+libraries:
+  - javax.xml.bind: jaxb-api
 
 ---
 
@@ -489,7 +519,7 @@ name: Apache Commons BeanUtils
 license_category: binary
 module: java-core
 license_name: Apache License version 2.0
-version: 1.9.4
+version: 1.11.0
 libraries:
   - commons-beanutils: commons-beanutils
 notices:
@@ -542,7 +572,7 @@ name: Apache Commons IO
 license_category: binary
 module: java-core
 license_name: Apache License version 2.0
-version: 2.17.0
+version: 2.20.0
 libraries:
   - commons-io: commons-io
 notices:
@@ -2100,7 +2130,7 @@ name: Jetty
 license_category: binary
 module: java-core
 license_name: Apache License version 2.0
-version: 9.4.57.v20241219
+version: 9.4.58.v20250814
 libraries:
   - org.eclipse.jetty: jetty-client
   - org.eclipse.jetty: jetty-continuation
@@ -2846,7 +2876,7 @@ libraries:
 ---
 
 name: Jackson Dataformat Yaml
-version: 2.12.7
+version: 2.18.4
 license_category: binary
 module: extensions/druid-avro-extensions
 license_name: Apache License version 2.0
