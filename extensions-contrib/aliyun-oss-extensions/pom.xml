@@ -28,7 +28,7 @@
   <parent>
     <groupId>org.apache.druid</groupId>
     <artifactId>druid</artifactId>
-    <version>33.0.0-deepbi3</version>
+    <version>33.0.0-deepbi4</version>
     <relativePath>../../pom.xml</relativePath>
   </parent>
   
