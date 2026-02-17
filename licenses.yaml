@@ -567,7 +567,7 @@ name: Apache Commons IO
 license_category: binary
 module: java-core
 license_name: Apache License version 2.0
-version: 2.17.0
+version: 2.20.0
 libraries:
   - commons-io: commons-io
 notices:
@@ -2138,7 +2138,7 @@ name: Jetty
 license_category: binary
 module: java-core
 license_name: Apache License version 2.0
-version: 9.4.57.v20241219
+version: 9.4.58.v20250814
 libraries:
   - org.eclipse.jetty: jetty-client
   - org.eclipse.jetty: jetty-continuation
