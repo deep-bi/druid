@@ -232,16 +232,6 @@ libraries:
 
 name: Jackson
 license_category: binary
-module: extensions/druid-parquet-extensions
-license_name: Apache License version 2.0
-version: 2.18.4.1
-libraries:
-  - com.fasterxml.jackson.core: jackson-core
-
----
-
-name: Jackson
-license_category: binary
 module: java-core
 license_name: Apache License version 2.0
 version: 2.18.4
