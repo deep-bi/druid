@@ -28,7 +28,7 @@
     <parent>
         <groupId>org.apache.druid</groupId>
         <artifactId>druid</artifactId>
-        <version>34.0.0-deepbi4</version>
+        <version>34.0.0-deepbi5</version>
     </parent>
 
     <dependencies>
