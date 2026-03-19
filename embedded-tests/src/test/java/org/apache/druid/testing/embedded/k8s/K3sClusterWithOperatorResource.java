@@ -51,7 +51,7 @@ public class K3sClusterWithOperatorResource extends K3sClusterResource
   private static final String OPERATOR_NAMESPACE_MANIFEST = "manifests/druid-operator-namespace.yaml";
   private static final String OPERATOR_NAMESPACE = "druid-operator-system";
   private static final String HELM_RELEASE_NAME = "druid-operator";
-  private static final String HELM_REPO_NAME = "datainfra";
+  private static final String HELM_REPO_NAME = "deep-bi";
   private static final String HELM_REPO_URL = "https://charts.deep.bi";
   private static final String HELM_CHART_NAME = "deep-bi/druid-operator";
   private static final String OPERATOR_IMAGE_TAG = "v1.3.0";
