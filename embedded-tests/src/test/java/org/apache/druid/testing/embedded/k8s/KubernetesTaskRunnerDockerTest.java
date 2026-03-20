@@ -25,11 +25,13 @@ import org.apache.druid.testing.embedded.docker.LatestImageDockerTest;
 import org.apache.druid.testing.embedded.indexing.IngestionSmokeTest;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 
 /**
  * Runs some basic ingestion tests against latest image Druid containers running
  * on a K3s cluster with druid-operator and using {@code k8s} task runner type.
  */
+@Disabled("Temporarily disabled: chart depends on missing image gcr.io/kubebuilder/kube-rbac-proxy:v0.13.1")
 public class KubernetesTaskRunnerDockerTest extends IngestionSmokeTest implements LatestImageDockerTest
 {
   private static final String MANIFEST_TEMPLATE = "manifests/druid-service-with-operator.yaml";
