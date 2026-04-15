@@ -114,7 +114,6 @@ public class LookupSegment extends RowBasedSegment<Map.Entry<String, String>>
     private final Iterator<Map.Entry<String, String>> delegate;
     @Nullable
     private final RetainedLookupExtractor retainedLookupExtractor;
-    private boolean closed;
 
     private LookupSegmentIterator(
         Iterator<Map.Entry<String, String>> delegate,
@@ -140,11 +139,8 @@ public class LookupSegment extends RowBasedSegment<Map.Entry<String, String>>
     @Override
     public void close()
     {
-      if (!closed && retainedLookupExtractor != null) {
-        closed = true;
+      if (retainedLookupExtractor != null) {
         retainedLookupExtractor.close();
-      } else {
-        closed = true;
       }
     }
   }

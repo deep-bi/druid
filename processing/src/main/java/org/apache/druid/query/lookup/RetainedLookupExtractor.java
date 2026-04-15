@@ -21,8 +21,12 @@ package org.apache.druid.query.lookup;
 
 import javax.annotation.Nullable;
 import java.io.Closeable;
+import java.lang.ref.Cleaner;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Holds a lookup extractor together with a retained reference to the resources backing it.
@@ -31,8 +35,11 @@ import java.util.Map;
  */
 public class RetainedLookupExtractor extends LookupExtractor implements Closeable
 {
+  private static final Cleaner CLEANER = Cleaner.create();
+
   private final LookupExtractor delegate;
-  private final Closeable retainedReference;
+  private final RetainedReferenceCleanup retainedReferenceCleanup;
+  private final Cleaner.Cleanable cleanable;
 
   public static RetainedLookupExtractor create(LookupExtractor delegate, Closeable retainedReference)
   {
@@ -42,7 +49,8 @@ public class RetainedLookupExtractor extends LookupExtractor implements Closeabl
   private RetainedLookupExtractor(LookupExtractor delegate, Closeable retainedReference)
   {
     this.delegate = delegate;
-    this.retainedReference = retainedReference;
+    this.retainedReferenceCleanup = new RetainedReferenceCleanup(retainedReference);
+    this.cleanable = CLEANER.register(this, retainedReferenceCleanup);
   }
 
   @Nullable
@@ -56,6 +64,19 @@ public class RetainedLookupExtractor extends LookupExtractor implements Closeabl
   protected final List<String> unapply(@Nullable String value)
   {
     return delegate.unapply(value);
+  }
+
+  @Override
+  public final Map<String, String> applyAll(Iterable<String> keys)
+  {
+    return delegate.applyAll(keys);
+  }
+
+  @Nullable
+  @Override
+  public final Iterator<String> unapplyAll(Set<String> values)
+  {
+    return delegate.unapplyAll(values);
   }
 
   @Override
@@ -91,11 +112,43 @@ public class RetainedLookupExtractor extends LookupExtractor implements Closeabl
   @Override
   public void close()
   {
-    try {
-      retainedReference.close();
+    retainedReferenceCleanup.close();
+    cleanable.clean();
+  }
+
+  private static class RetainedReferenceCleanup implements Runnable
+  {
+    private final Closeable retainedReference;
+    private final AtomicBoolean closed = new AtomicBoolean(false);
+
+    private RetainedReferenceCleanup(Closeable retainedReference)
+    {
+      this.retainedReference = retainedReference;
     }
-    catch (Exception e) {
-      throw new RuntimeException(e);
+
+    @Override
+    public void run()
+    {
+      closeInternal(false);
+    }
+
+    private void close()
+    {
+      closeInternal(true);
+    }
+
+    private void closeInternal(boolean propagateFailure)
+    {
+      if (closed.compareAndSet(false, true)) {
+        try {
+          retainedReference.close();
+        }
+        catch (Exception e) {
+          if (propagateFailure) {
+            throw new RuntimeException(e);
+          }
+        }
+      }
     }
   }
 }
