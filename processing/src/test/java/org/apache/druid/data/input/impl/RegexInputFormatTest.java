@@ -22,12 +22,17 @@ package org.apache.druid.data.input.impl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.jsontype.NamedType;
 import com.google.common.collect.ImmutableList;
+import org.apache.druid.data.input.InputEntityReader;
 import org.apache.druid.data.input.InputFormat;
+import org.apache.druid.java.util.common.parsers.CloseableIterator;
+import org.apache.druid.java.util.common.parsers.ParseException;
 import org.apache.druid.utils.CompressionUtils;
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Map;
 
 public class RegexInputFormatTest
@@ -95,5 +100,32 @@ public class RegexInputFormatTest
         unweightedSize * CompressionUtils.COMPRESSED_TEXT_WEIGHT_FACTOR,
         format.getWeightedSize("file.txt.gz", unweightedSize)
     );
+  }
+
+  @Test(timeout = 400)
+  public void test_backtracking() throws IOException
+  {
+    final RegexInputFormat inputFormat = new RegexInputFormat(
+        "^(a+)+$",
+        null,
+        List.of("value")
+    );
+
+    String maliciousInput = "a".repeat(5000) + "X";
+    InputEntityReader reader = inputFormat.createReader(
+        null,
+        new ByteEntity(maliciousInput.getBytes(StandardCharsets.UTF_8)),
+        null
+    );
+
+    try (CloseableIterator<?> iterator = reader.read()) {
+      while (iterator.hasNext()) {
+        iterator.next();
+      }
+    }
+
+    catch (ParseException ignored) {
+      // expected for non-matching input
+    }
   }
 }

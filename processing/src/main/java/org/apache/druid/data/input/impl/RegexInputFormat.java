@@ -25,6 +25,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
+import com.google.re2j.Pattern;
 import org.apache.druid.data.input.InputEntity;
 import org.apache.druid.data.input.InputEntityReader;
 import org.apache.druid.data.input.InputFormat;
@@ -34,7 +35,6 @@ import org.apache.druid.utils.CompressionUtils;
 import javax.annotation.Nullable;
 import java.io.File;
 import java.util.List;
-import java.util.regex.Pattern;
 
 public class RegexInputFormat implements InputFormat
 {

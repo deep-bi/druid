@@ -22,6 +22,8 @@ package org.apache.druid.data.input.impl;
 import com.google.common.base.Function;
 import com.google.common.base.Splitter;
 import com.google.common.collect.Iterables;
+import com.google.re2j.Matcher;
+import com.google.re2j.Pattern;
 import org.apache.druid.data.input.InputEntity;
 import org.apache.druid.data.input.InputRow;
 import org.apache.druid.data.input.InputRowSchema;
@@ -36,8 +38,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 public class RegexReader extends TextReader.Strings
 {
