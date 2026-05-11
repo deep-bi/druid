@@ -51,6 +51,7 @@ import org.apache.druid.guice.LazySingleton;
 import org.apache.druid.guice.LifecycleModule;
 import org.apache.druid.guice.ManageLifecycle;
 import org.apache.druid.guice.QueryableModule;
+import org.apache.druid.guice.RegexEngineModule;
 import org.apache.druid.guice.SupervisorCleanupModule;
 import org.apache.druid.guice.annotations.EscalatedGlobal;
 import org.apache.druid.guice.annotations.Global;
@@ -196,6 +197,7 @@ public class CliCoordinator extends ServerRunnable
       modules.add(new QueryableModule());
     }
 
+    modules.add(new RegexEngineModule());
     modules.add(
         new Module()
         {

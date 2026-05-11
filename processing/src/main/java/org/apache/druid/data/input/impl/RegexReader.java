@@ -22,8 +22,6 @@ package org.apache.druid.data.input.impl;
 import com.google.common.base.Function;
 import com.google.common.base.Splitter;
 import com.google.common.collect.Iterables;
-import com.google.re2j.Matcher;
-import com.google.re2j.Pattern;
 import org.apache.druid.data.input.InputEntity;
 import org.apache.druid.data.input.InputRow;
 import org.apache.druid.data.input.InputRowSchema;
@@ -32,6 +30,8 @@ import org.apache.druid.java.util.common.collect.Utils;
 import org.apache.druid.java.util.common.parsers.ParseException;
 import org.apache.druid.java.util.common.parsers.ParserUtils;
 import org.apache.druid.java.util.common.parsers.Parsers;
+import org.apache.druid.regex.RegexMatcher;
+import org.apache.druid.regex.RegexPattern;
 
 import javax.annotation.Nullable;
 import java.util.ArrayList;
@@ -42,7 +42,7 @@ import java.util.Map;
 public class RegexReader extends TextReader.Strings
 {
   private final String pattern;
-  private final Pattern compiledPattern;
+  private final RegexPattern compiledPattern;
   private final Function<String, Object> multiValueFunction;
 
   private List<String> columns;
@@ -51,7 +51,7 @@ public class RegexReader extends TextReader.Strings
       InputRowSchema inputRowSchema,
       InputEntity source,
       String pattern,
-      Pattern compiledPattern,
+      RegexPattern compiledPattern,
       @Nullable String listDelimiter,
       @Nullable List<String> columns
   )
@@ -79,7 +79,7 @@ public class RegexReader extends TextReader.Strings
   private Map<String, Object> parseLine(String line)
   {
     try {
-      final Matcher matcher = compiledPattern.matcher(line);
+      final RegexMatcher matcher = compiledPattern.matcher(line);
 
       if (!matcher.matches()) {
         throw new ParseException(line, "Incorrect Regex: %s . No match found.", pattern);

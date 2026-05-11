@@ -52,6 +52,7 @@ public class StartupInjectorBuilder extends BaseInjectorBuilder<StartupInjectorB
         new ConfigModule(),
         new NullHandlingModule(),
         new ExpressionProcessingModule(),
+        new RegexEngineModule(),
         binder -> binder.bind(DruidSecondaryModule.class)
     );
   }
