@@ -76,6 +76,7 @@ import org.apache.druid.metadata.segment.SqlSegmentMetadataTransactionFactory;
 import org.apache.druid.metadata.segment.SqlSegmentsMetadataManagerV2;
 import org.apache.druid.metadata.segment.cache.HeapMemorySegmentMetadataCache;
 import org.apache.druid.metadata.segment.cache.SegmentMetadataCache;
+import org.apache.druid.regex.RegexConfig;
 import org.apache.druid.segment.DataSegmentsWithSchemas;
 import org.apache.druid.segment.IndexIO;
 import org.apache.druid.segment.IndexMergerV9Factory;
@@ -399,6 +400,7 @@ public abstract class IngestionTestBase extends InitializedNullHandlingTest
     } else if (parseSpec instanceof RegexParseSpec) {
       RegexParseSpec regexParseSpec = (RegexParseSpec) parseSpec;
       return new RegexInputFormat(
+          new RegexConfig(),
           regexParseSpec.getPattern(),
           regexParseSpec.getListDelimiter(),
           regexParseSpec.getColumns());
