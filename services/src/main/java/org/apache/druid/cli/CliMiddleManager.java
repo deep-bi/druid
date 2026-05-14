@@ -47,6 +47,7 @@ import org.apache.druid.guice.LifecycleModule;
 import org.apache.druid.guice.ManageLifecycle;
 import org.apache.druid.guice.MiddleManagerServiceModule;
 import org.apache.druid.guice.PolyBind;
+import org.apache.druid.guice.RegexEngineModule;
 import org.apache.druid.guice.annotations.Self;
 import org.apache.druid.indexing.common.RetryPolicyFactory;
 import org.apache.druid.indexing.common.TaskStorageDirTracker;
@@ -245,7 +246,8 @@ public class CliMiddleManager extends ServerRunnable
         new IndexingServiceTaskLogsModule(),
         new IndexingServiceTuningConfigModule(),
         new InputSourceModule(),
-        new LookupSerdeModule()
+        new LookupSerdeModule(),
+        new RegexEngineModule()
     );
   }
 

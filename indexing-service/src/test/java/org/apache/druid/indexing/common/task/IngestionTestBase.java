@@ -70,6 +70,7 @@ import org.apache.druid.metadata.SegmentsMetadataManager;
 import org.apache.druid.metadata.SegmentsMetadataManagerConfig;
 import org.apache.druid.metadata.SqlSegmentsMetadataManager;
 import org.apache.druid.metadata.TestDerbyConnector;
+import org.apache.druid.regex.RegexConfig;
 import org.apache.druid.segment.DataSegmentsWithSchemas;
 import org.apache.druid.segment.IndexIO;
 import org.apache.druid.segment.IndexMergerV9Factory;
@@ -330,6 +331,7 @@ public abstract class IngestionTestBase extends InitializedNullHandlingTest
     } else if (parseSpec instanceof RegexParseSpec) {
       RegexParseSpec regexParseSpec = (RegexParseSpec) parseSpec;
       return new RegexInputFormat(
+          new RegexConfig(),
           regexParseSpec.getPattern(),
           regexParseSpec.getListDelimiter(),
           regexParseSpec.getColumns());
