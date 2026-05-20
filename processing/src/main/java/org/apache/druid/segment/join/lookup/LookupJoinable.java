@@ -21,7 +21,6 @@ package org.apache.druid.segment.join.lookup;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Sets;
 import org.apache.druid.java.util.common.io.Closer;
 import org.apache.druid.query.filter.InDimFilter;
 import org.apache.druid.query.lookup.LookupExtractor;
@@ -146,9 +145,11 @@ public class LookupJoinable implements Joinable
         if (matchingKeys > maxNumValues) {
           return new ColumnValuesWithUniqueFlag(ImmutableSet.of(), false);
         } else if (matchingKeys == keys.size()) {
-          return new ColumnValuesWithUniqueFlag(keys, true);
+          return new ColumnValuesWithUniqueFlag(new HashSet<>(keys), true);
         } else {
-          return new ColumnValuesWithUniqueFlag(Sets.difference(keys, nonMatchingValues), true);
+          final Set<String> matchingValues = new HashSet<>(keys);
+          matchingValues.removeAll(nonMatchingValues);
+          return new ColumnValuesWithUniqueFlag(matchingValues, true);
         }
       } else {
         return new ColumnValuesWithUniqueFlag(ImmutableSet.of(), false);
