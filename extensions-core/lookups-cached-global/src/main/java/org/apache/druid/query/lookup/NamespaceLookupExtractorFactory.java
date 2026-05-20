@@ -263,6 +263,7 @@ public class NamespaceLookupExtractorFactory implements LookupExtractorFactory
       readLock.lockInterruptibly();
     }
     catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
       throw new RuntimeException(e);
     }
     try {

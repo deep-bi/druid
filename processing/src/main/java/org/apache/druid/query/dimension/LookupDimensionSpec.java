@@ -157,7 +157,9 @@ public class LookupDimensionSpec implements DimensionSpec
     final Optional<RetainedLookupExtractor> retainedLookupExtractor =
         lookupExtractorFactory.acquireRetainedLookupExtractor();
 
-    return retainedLookupExtractor.<LookupExtractor>map(retained -> retained).orElseGet(lookupExtractorFactory::get);
+    // ExtractionFn has no close hook. The RetainedLookupExtractor cleaner releases this reference when the
+    // LookupExtractionFn that owns it becomes unreachable.
+    return retainedLookupExtractor.<LookupExtractor>map(retained -> retained).orElseGet(lookupExtractorFactory);
   }
 
   private LookupExtractionFn makeLookupExtractionFn(final LookupExtractor lookupExtractor)

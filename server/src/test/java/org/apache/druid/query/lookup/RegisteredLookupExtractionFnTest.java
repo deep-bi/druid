@@ -27,7 +27,6 @@ import org.apache.druid.query.extraction.ExtractionFn;
 import org.apache.druid.query.extraction.MapLookupExtractor;
 import org.apache.druid.testing.InitializedNullHandlingTest;
 import org.easymock.EasyMock;
-import org.jetbrains.annotations.NotNull;
 import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
@@ -134,7 +133,7 @@ public class RegisteredLookupExtractionFnTest extends InitializedNullHandlingTes
     Assert.assertEquals(2, retainedCloses.get());
   }
 
-  private static @NotNull RegisteredLookupExtractionFn getRegisteredLookupExtractionFn(LookupExtractorFactory factory)
+  private static RegisteredLookupExtractionFn getRegisteredLookupExtractionFn(LookupExtractorFactory factory)
   {
     final LookupExtractorFactoryContainerProvider manager = new LookupExtractorFactoryContainerProvider()
     {

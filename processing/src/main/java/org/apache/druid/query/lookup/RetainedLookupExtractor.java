@@ -31,7 +31,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /**
  * Holds a lookup extractor together with a retained reference to the resources backing it.
  *
- * The retained reference must be closed when the caller is finished using the extractor.
+ * Callers with an explicit lifecycle should close this extractor when finished. Callers that hand the extractor to
+ * APIs without a close hook rely on the Cleaner fallback to release the retained reference when this extractor becomes
+ * unreachable.
  */
 public class RetainedLookupExtractor extends LookupExtractor implements Closeable
 {
@@ -112,8 +114,12 @@ public class RetainedLookupExtractor extends LookupExtractor implements Closeabl
   @Override
   public void close()
   {
-    retainedReferenceCleanup.close();
-    cleanable.clean();
+    try {
+      retainedReferenceCleanup.close();
+    }
+    finally {
+      cleanable.clean();
+    }
   }
 
   private static class RetainedReferenceCleanup implements Runnable
