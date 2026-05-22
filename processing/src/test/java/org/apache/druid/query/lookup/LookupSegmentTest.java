@@ -44,6 +44,8 @@ import javax.annotation.Nullable;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class LookupSegmentTest
 {
@@ -201,5 +203,37 @@ public class LookupSegmentTest
     // This allows us to assume that LookupSegmentTest is further exercising makeCursor and verifying misc.
     // methods like getMinTime, getMaxTime, getMetadata, etc, without checking them explicitly in _this_ test class.
     MatcherAssert.assertThat(LOOKUP_SEGMENT.as(CursorFactory.class), CoreMatchers.instanceOf(RowBasedCursorFactory.class));
+  }
+
+  @Test
+  public void testRetainedLookupExtractorIsClosedWhenCursorCloses()
+  {
+    final AtomicInteger closeCount = new AtomicInteger();
+    final LookupExtractorFactory retainingFactory = new RetainingLookupExtractorFactory(
+        () -> {
+          throw new AssertionError("Expected retained lookup extractor path");
+        },
+        () -> Optional.of(
+            RetainedLookupExtractor.create(
+                new MapLookupExtractor(LOOKUP_MAP, false),
+                closeCount::incrementAndGet
+            )
+        )
+    );
+
+    final LookupSegment retainedLookupSegment = new LookupSegment(LOOKUP_NAME, retainingFactory);
+    final CursorBuildSpec buildSpec = CursorBuildSpec.builder()
+                                                     .setInterval(Intervals.of("1970/PT1H"))
+                                                     .build();
+
+    try (final CursorHolder cursorHolder = retainedLookupSegment.as(CursorFactory.class).makeCursorHolder(buildSpec)) {
+      final Cursor cursor = cursorHolder.asCursor();
+      while (!cursor.isDone()) {
+        cursor.advanceUninterruptibly();
+      }
+      Assert.assertEquals(0, closeCount.get());
+    }
+
+    Assert.assertEquals(1, closeCount.get());
   }
 }
