@@ -53,6 +53,7 @@ jobs:
     with:
       build_jdk: 17
       runtime_jdk: 17
+      integration_test_jvm_runtime: 17.0.18_8
       testing_groups: -Dgroups=${{ matrix.testing_group }}
       use_indexer: middleManager
       override_config_path: ./environment-configs/test-groups/prepopulated-data
@@ -65,6 +66,7 @@ jobs:
     with:
       build_jdk: 17
       runtime_jdk: 17
+      integration_test_jvm_runtime: 17.0.18_8
       testing_groups: -Dgroups=query
       use_indexer: middleManager
       mysql_driver: org.mariadb.jdbc.Driver
