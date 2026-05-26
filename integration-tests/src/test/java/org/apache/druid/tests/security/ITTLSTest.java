@@ -465,7 +465,14 @@ public class ITTLSTest
         );
 
         if (useContainsMsgCheck) {
-          Assert.assertTrue(rootCause.getMessage().contains(expectedExceptionMsg));
+          Assert.assertTrue(
+              rootCause.getMessage().contains(expectedExceptionMsg),
+              StringUtils.format(
+                  "Expected message to contain [%s] but found [%s].",
+                  expectedExceptionMsg,
+                  rootCause.getMessage()
+              )
+          );
         } else {
           Assert.assertEquals(
               rootCause.getMessage(),
