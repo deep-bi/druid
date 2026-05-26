@@ -31,7 +31,7 @@ then
 else
   echo "\$DRUID_INTEGRATION_TEST_JVM_RUNTIME is set with value ${DRUID_INTEGRATION_TEST_JVM_RUNTIME}"
   case "${DRUID_INTEGRATION_TEST_JVM_RUNTIME}" in
-  11 | 17 | 17.0.18_8 | 21)
+  11 | 17 | 21)
     echo "Build druid-cluster with Java $DRUID_INTEGRATION_TEST_JVM_RUNTIME"
     docker build -t druid/cluster \
       --build-arg JDK_VERSION=$DRUID_INTEGRATION_TEST_JVM_RUNTIME-jre-jammy \

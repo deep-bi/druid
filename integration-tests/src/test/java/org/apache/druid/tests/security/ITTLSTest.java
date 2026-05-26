@@ -276,7 +276,7 @@ public class ITTLSTest
         "Certless",
         SSLException.class,
         "Received fatal alert: bad_certificate",
-        false
+        true
     );
   }
 
@@ -289,7 +289,7 @@ public class ITTLSTest
         "Wrong hostname",
         SSLException.class,
         "Received fatal alert: certificate_unknown",
-        false
+        true
     );
   }
 
@@ -302,7 +302,7 @@ public class ITTLSTest
         "Wrong root cert",
         SSLException.class,
         "Received fatal alert: certificate_unknown",
-        false
+        true
     );
   }
 
@@ -315,7 +315,7 @@ public class ITTLSTest
         "Revoked cert",
         SSLException.class,
         "Received fatal alert: certificate_unknown",
-        false
+        true
     );
   }
 
@@ -328,7 +328,7 @@ public class ITTLSTest
         "Expired cert",
         SSLException.class,
         "Received fatal alert: certificate_unknown",
-        false
+        true
     );
   }
 
@@ -341,7 +341,7 @@ public class ITTLSTest
         "Cert signed by non-CA",
         SSLException.class,
         "Received fatal alert: certificate_unknown",
-        false
+        true
     );
   }
 
