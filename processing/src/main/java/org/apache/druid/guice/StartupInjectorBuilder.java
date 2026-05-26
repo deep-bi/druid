@@ -61,6 +61,7 @@ public class StartupInjectorBuilder extends BaseInjectorBuilder<StartupInjectorB
         new JacksonModule(),
         new ConfigModule(),
         new ExpressionProcessingModule(),
+        new RegexEngineModule(),
         binder -> binder.bind(DruidSecondaryModule.class),
         binder -> binder.bind(PropertiesValidator.class) // this gets properties injected, later call to validate checks
     );
