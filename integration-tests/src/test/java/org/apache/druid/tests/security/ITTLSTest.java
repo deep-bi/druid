@@ -275,8 +275,8 @@ public class ITTLSTest
         url + "/status",
         "Certless",
         SSLException.class,
-        "Received fatal alert: bad_certificate",
-        true
+        "(handshake_failure) Received fatal alert: handshake_failure",
+        false
     );
   }
 
@@ -288,8 +288,8 @@ public class ITTLSTest
         url + "/status",
         "Wrong hostname",
         SSLException.class,
-        "Received fatal alert: certificate_unknown",
-        true
+        "(certificate_unknown) Received fatal alert: certificate_unknown",
+        false
     );
   }
 
@@ -301,8 +301,8 @@ public class ITTLSTest
         url + "/status",
         "Wrong root cert",
         SSLException.class,
-        "Received fatal alert: certificate_unknown",
-        true
+        "(certificate_unknown) Received fatal alert: certificate_unknown",
+        false
     );
   }
 
@@ -314,8 +314,8 @@ public class ITTLSTest
         url + "/status",
         "Revoked cert",
         SSLException.class,
-        "Received fatal alert: certificate_unknown",
-        true
+        "(certificate_unknown) Received fatal alert: certificate_unknown",
+        false
     );
   }
 
@@ -327,8 +327,8 @@ public class ITTLSTest
         url + "/status",
         "Expired cert",
         SSLException.class,
-        "Received fatal alert: certificate_unknown",
-        true
+        "(certificate_unknown) Received fatal alert: certificate_unknown",
+        false
     );
   }
 
@@ -340,8 +340,8 @@ public class ITTLSTest
         url + "/status",
         "Cert signed by non-CA",
         SSLException.class,
-        "Received fatal alert: certificate_unknown",
-        true
+        "(certificate_unknown) Received fatal alert: certificate_unknown",
+        false
     );
   }
 
@@ -465,14 +465,7 @@ public class ITTLSTest
         );
 
         if (useContainsMsgCheck) {
-          Assert.assertTrue(
-              rootCause.getMessage().contains(expectedExceptionMsg),
-              StringUtils.format(
-                  "Expected message to contain [%s] but found [%s].",
-                  expectedExceptionMsg,
-                  rootCause.getMessage()
-              )
-          );
+          Assert.assertTrue(rootCause.getMessage().contains(expectedExceptionMsg));
         } else {
           Assert.assertEquals(
               rootCause.getMessage(),
