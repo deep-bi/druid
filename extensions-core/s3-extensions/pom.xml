@@ -109,6 +109,12 @@
     </dependency>
     <dependency>
       <groupId>software.amazon.awssdk</groupId>
+      <artifactId>http-auth-aws-crt</artifactId>
+      <version>${aws.sdk.v2.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>software.amazon.awssdk</groupId>
       <artifactId>s3-transfer-manager</artifactId>
       <version>${aws.sdk.v2.version}</version>
     </dependency>
