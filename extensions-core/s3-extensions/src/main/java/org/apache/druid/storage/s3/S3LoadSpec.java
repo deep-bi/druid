@@ -50,7 +50,7 @@ public class S3LoadSpec implements LoadSpec
   {
     Preconditions.checkNotNull(bucket);
     Preconditions.checkNotNull(key);
-    this.bucket = bucket;
+    this.bucket = S3Utils.normalizeBucketName(bucket);
     this.key = key;
     this.puller = puller;
   }

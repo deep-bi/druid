@@ -138,4 +138,44 @@ public class CloudObjectLocationTest
     Assert.assertEquals("test_bucket", s3ValidBucket.getBucket());
     Assert.assertEquals("path/to/path", s3ValidBucket.getPath());
   }
+
+  @Test
+  public void testMRAP()
+  {
+    CloudObjectLocation location = new CloudObjectLocation("arn:aws:s3::123456789123:accesspoint:bucket.mrap", "path/to/path");
+    Assert.assertEquals("arn:aws:s3::123456789123:accesspoint:bucket.mrap", location.getBucket());
+    Assert.assertEquals("path/to/path", location.getPath());
+  }
+
+  @Test
+  public void testMRAPWithURI()
+  {
+    CloudObjectLocation location = new CloudObjectLocation(URI.create("s3://arn:aws:s3::123456789123:accesspoint:bucket.mrap/path/to/path"));
+    Assert.assertEquals("arn:aws:s3::123456789123:accesspoint:bucket.mrap", location.getBucket());
+    Assert.assertEquals("path/to/path", location.getPath());
+  }
+
+  @Test
+  public void testRegionalARN()
+  {
+    CloudObjectLocation location = new CloudObjectLocation("arn:aws:s3:us-east-1:123456789123:accesspoint:bucket", "path/to/path");
+    Assert.assertEquals("arn:aws:s3:us-east-1:123456789123:accesspoint:bucket", location.getBucket());
+    Assert.assertEquals("path/to/path", location.getPath());
+  }
+
+  @Test
+  public void testRegionARNWithURI()
+  {
+    CloudObjectLocation location = new CloudObjectLocation(URI.create("s3://arn:aws:s3:us-east-1:123456789123:accesspoint:bucket/path/to/path"));
+    Assert.assertEquals("arn:aws:s3:us-east-1:123456789123:accesspoint:bucket", location.getBucket());
+    Assert.assertEquals("path/to/path", location.getPath());
+  }
+
+  @Test
+  public void testMRAPWithPlusInKey()
+  {
+    CloudObjectLocation location = new CloudObjectLocation(URI.create("s3://arn:aws:s3::123456789123:accesspoint:bucket.mrap/path/with+plus"));
+    Assert.assertEquals("arn:aws:s3::123456789123:accesspoint:bucket.mrap", location.getBucket());
+    Assert.assertEquals("path/with+plus", location.getPath());
+  }
 }
