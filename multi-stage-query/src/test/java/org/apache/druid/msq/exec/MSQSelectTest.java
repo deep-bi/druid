@@ -85,6 +85,7 @@ import org.apache.druid.segment.column.RowSignature;
 import org.apache.druid.segment.join.JoinType;
 import org.apache.druid.segment.virtual.ExpressionVirtualColumn;
 import org.apache.druid.server.lookup.cache.LookupLoadingSpec;
+import org.apache.druid.sql.calcite.SqlTestFrameworkConfig;
 import org.apache.druid.sql.calcite.expression.DruidExpression;
 import org.apache.druid.sql.calcite.external.ExternalDataSource;
 import org.apache.druid.sql.calcite.filtration.Filtration;
@@ -112,8 +113,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
-import static org.apache.druid.sql.calcite.util.CalciteTests.SOME_DATASOURCE;
 
 public class MSQSelectTest extends MSQTestBase
 {
@@ -258,6 +257,7 @@ public class MSQSelectTest extends MSQTestBase
 
   @MethodSource("data")
   @ParameterizedTest(name = "{index}:with context {0}")
+  @SqlTestFrameworkConfig.Datasets("multi-stage-query/src/test/resources/complex-hll-dataset")
   public void testSelectOnFooWithComplex(String contextName, Map<String, Object> context)
   {
     RowSignature resultSignature = RowSignature.builder()
@@ -271,12 +271,12 @@ public class MSQSelectTest extends MSQTestBase
     queryContext.put("includeSegmentSource", "REALTIME");
 
     testSelectQuery()
-        .setSql("select cnt,unique_dim1 from some_datasource")
+        .setSql("select cnt,unique_dim1 from complex_hll_datasource")
         .setExpectedMSQSpec(
             LegacyMSQSpec.builder()
                    .query(
                        newScanQueryBuilder()
-                           .dataSource(SOME_DATASOURCE)
+                           .dataSource("complex_hll_datasource")
                            .intervals(querySegmentSpec(Filtration.eternity()))
                            .columns("cnt", "unique_dim1")
                            .columnTypes(List.of(ColumnType.LONG, HyperUniquesAggregatorFactory.TYPE))
