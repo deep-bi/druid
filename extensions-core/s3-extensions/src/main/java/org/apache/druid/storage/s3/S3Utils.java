@@ -36,6 +36,8 @@ import org.apache.druid.java.util.common.logger.Logger;
 import software.amazon.awssdk.core.exception.SdkClientException;
 import software.amazon.awssdk.core.exception.SdkException;
 import software.amazon.awssdk.http.apache.ProxyConfiguration;
+import software.amazon.awssdk.services.s3.LegacyMd5Plugin;
+import software.amazon.awssdk.services.s3.S3BaseClientBuilder;
 import software.amazon.awssdk.services.s3.model.Delete;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
@@ -137,6 +139,16 @@ public class S3Utils
   public static boolean isS3Arn(String value)
   {
     return value != null && S3_ARN.matcher(value).matches();
+  }
+
+  public static void configureLegacyMd5(
+      final S3BaseClientBuilder<?, ?> s3ClientBuilder,
+      final AWSClientConfig clientConfig
+  )
+  {
+    if (clientConfig.isEnableLegacyMd5()) {
+      s3ClientBuilder.addPlugin(LegacyMd5Plugin.create());
+    }
   }
 
   /**

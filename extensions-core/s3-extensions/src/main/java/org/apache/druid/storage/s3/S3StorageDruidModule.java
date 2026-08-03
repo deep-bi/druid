@@ -182,6 +182,8 @@ public class S3StorageDruidModule implements DruidModule
           .forcePathStyle(clientConfig.isEnablePathStyleAccess())
           .crossRegionAccessEnabled(clientConfig.isCrossRegionAccessEnabled());
 
+      S3Utils.configureLegacyMd5(s3ClientBuilder, clientConfig);
+
       if (endpointOverride != null) {
         s3ClientBuilder.endpointOverride(endpointOverride);
       }
@@ -203,6 +205,8 @@ public class S3StorageDruidModule implements DruidModule
           .forcePathStyle(clientConfig.isEnablePathStyleAccess())
           .crossRegionAccessEnabled(clientConfig.isCrossRegionAccessEnabled())
           .multipartEnabled(true);
+
+      S3Utils.configureLegacyMd5(s3AsyncClientBuilder, clientConfig);
 
       if (endpointOverride != null) {
         s3AsyncClientBuilder.endpointOverride(endpointOverride);

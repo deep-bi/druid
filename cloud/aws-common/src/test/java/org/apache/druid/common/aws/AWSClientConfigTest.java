@@ -28,6 +28,20 @@ public class AWSClientConfigTest
   private static final ObjectMapper MAPPER = new ObjectMapper();
 
   @Test
+  public void testLegacyMd5DisabledByDefault() throws Exception
+  {
+    final AWSClientConfig config = MAPPER.readValue("{}", AWSClientConfig.class);
+    Assertions.assertFalse(config.isEnableLegacyMd5());
+  }
+
+  @Test
+  public void testLegacyMd5CanBeEnabled() throws Exception
+  {
+    final AWSClientConfig config = MAPPER.readValue("{\"enableLegacyMd5\": true}", AWSClientConfig.class);
+    Assertions.assertTrue(config.isEnableLegacyMd5());
+  }
+
+  @Test
   public void testDefaultCrossRegionAccessEnabled() throws Exception
   {
     AWSClientConfig config = MAPPER.readValue("{}", AWSClientConfig.class);

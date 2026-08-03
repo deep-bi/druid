@@ -555,6 +555,7 @@ public class S3InputSourceTest extends InitializedNullHandlingTest
     EasyMock.expect(mockAwsClientConfig.isDisableChunkedEncoding()).andStubReturn(false);
     EasyMock.expect(mockAwsClientConfig.isEnablePathStyleAccess()).andStubReturn(false);
     EasyMock.expect(mockAwsClientConfig.isCrossRegionAccessEnabled()).andStubReturn(true);
+    EasyMock.expect(mockAwsClientConfig.isEnableLegacyMd5()).andStubReturn(false);
     EasyMock.expect(mockAwsClientConfig.getProtocol()).andStubReturn("http");
 
     EasyMock.expect(mockAwsProxyConfig.getHost()).andStubReturn("");

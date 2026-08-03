@@ -28,6 +28,7 @@ public class AWSClientConfig
   // Default values matching AWS SDK v2 defaults
   private static final boolean DEFAULT_CHUNKED_ENCODING_DISABLED = false;
   private static final boolean DEFAULT_PATH_STYLE_ACCESS = false;
+  private static final boolean DEFAULT_LEGACY_MD5_ENABLED = false;
 
   private static final int DEFAULT_CONNECTION_TIMEOUT_MILLIS = 10_000;
   private static final int DEFAULT_SOCKET_TIMEOUT_MILLIS = 50_000;
@@ -41,6 +42,9 @@ public class AWSClientConfig
 
   @JsonProperty
   private boolean enablePathStyleAccess = DEFAULT_PATH_STYLE_ACCESS;
+
+  @JsonProperty
+  private boolean enableLegacyMd5 = DEFAULT_LEGACY_MD5_ENABLED;
 
   /**
    * @deprecated Use {@link #crossRegionAccessEnabled} instead.
@@ -76,6 +80,11 @@ public class AWSClientConfig
   public boolean isEnablePathStyleAccess()
   {
     return enablePathStyleAccess;
+  }
+
+  public boolean isEnableLegacyMd5()
+  {
+    return enableLegacyMd5;
   }
 
   /**
@@ -133,6 +142,7 @@ public class AWSClientConfig
            "protocol='" + protocol + '\'' +
            ", disableChunkedEncoding=" + disableChunkedEncoding +
            ", enablePathStyleAccess=" + enablePathStyleAccess +
+           ", enableLegacyMd5=" + enableLegacyMd5 +
            ", crossRegionAccessEnabled=" + isCrossRegionAccessEnabled() +
            ", connectionTimeout=" + connectionTimeout +
            ", socketTimeout=" + socketTimeout +

@@ -161,6 +161,7 @@ public class S3InputSource extends CloudObjectInputSource
                   .chunkedEncodingEnabled(!awsClientConfig.isDisableChunkedEncoding());
               customBuilder.serviceConfiguration(s3ConfigBuilder.build());
               customBuilder.crossRegionAccessEnabled(awsClientConfig.isCrossRegionAccessEnabled());
+              S3Utils.configureLegacyMd5(customBuilder, awsClientConfig);
             }
 
             // Configure HTTP client with proxy if needed
