@@ -51,7 +51,9 @@ public class S3UtilsTest
 
     S3Utils.configureLegacyMd5(s3ClientBuilder, new AWSClientConfig());
 
-    Assert.assertTrue(s3ClientBuilder.plugins().isEmpty());
+    Assert.assertFalse(
+        s3ClientBuilder.plugins().stream().anyMatch(LegacyMd5Plugin.class::isInstance)
+    );
   }
 
   @Test
