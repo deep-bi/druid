@@ -2646,3 +2646,5 @@ nginx
 
 - ../docs/development/extensions-core/s3.md
 NIO
+MD5
+checksum
