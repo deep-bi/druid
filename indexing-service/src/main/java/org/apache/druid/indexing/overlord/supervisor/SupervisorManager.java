@@ -474,13 +474,54 @@ public class SupervisorManager
   private boolean possiblySuspendOrResumeSupervisorInternal(String id, boolean suspend)
   {
     Pair<Supervisor, SupervisorSpec> pair = supervisors.get(id);
-    if (pair == null || pair.rhs.isSuspended() == suspend) {
+    if (pair == null || pair.lhs == null || pair.rhs == null || pair.rhs.isSuspended() == suspend) {
       return false;
     }
 
-    SupervisorSpec nextState = suspend ? pair.rhs.createSuspendedSpec() : pair.rhs.createRunningSpec();
-    possiblyStopAndRemoveSupervisorInternal(nextState.getId(), false);
-    return createAndStartSupervisorInternal(nextState, true);
+    final SupervisorSpec nextState = suspend ? pair.rhs.createSuspendedSpec() : pair.rhs.createRunningSpec();
+    Preconditions.checkState(
+        id.equals(nextState.getId()),
+        "Suspending or resuming supervisor [%s] cannot change its id to [%s]",
+        id,
+        nextState.getId()
+    );
+
+    try {
+      metadataSupervisorManager.insert(id, nextState);
+    }
+    catch (Exception e) {
+      if (!isLatestSupervisorState(id, nextState.isSuspended())) {
+        log.error(e, "Failed to persist supervisor spec [%s]", id);
+        throw e;
+      }
+      log.warn(
+          e,
+          "Metadata write for supervisor [%s] reported failure, but the requested state was committed",
+          id
+      );
+    }
+
+    possiblyStopAndRemoveSupervisorInternal(id, false);
+    return createAndStartSupervisorInternal(nextState, false);
+  }
+
+  private boolean isLatestSupervisorState(String supervisorId, boolean expectedSuspended)
+  {
+    try {
+      final List<VersionedSupervisorSpec> supervisorHistory = metadataSupervisorManager.getAllForId(supervisorId, 1);
+      if (supervisorHistory.isEmpty()) {
+        return false;
+      }
+
+      final SupervisorSpec latestSpec = supervisorHistory.get(0).getSpec();
+      return latestSpec != null
+             && !(latestSpec instanceof NoopSupervisorSpec)
+             && latestSpec.isSuspended() == expectedSuspended;
+    }
+    catch (Exception e) {
+      log.warn(e, "Could not read the latest spec for supervisor [%s]", supervisorId);
+      return false;
+    }
   }
 
   /**

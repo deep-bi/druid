@@ -660,6 +660,25 @@ public class SupervisorResourceTest extends EasyMockSupport
   }
 
   @Test
+  public void testSuspendAllPropagatesSupervisorRecreationFailure()
+  {
+    final RuntimeException recreationFailure = new RuntimeException("metadata update failed");
+    EasyMock.expect(taskMaster.getSupervisorManager()).andReturn(Optional.of(supervisorManager));
+    EasyMock.expect(supervisorManager.getSupervisorIds()).andReturn(ImmutableSet.of(SPEC1.getId())).atLeastOnce();
+    EasyMock.expect(supervisorManager.getSupervisorSpec(SPEC1.getId())).andReturn(Optional.of(SPEC1));
+    EasyMock.expect(supervisorManager.suspendOrResumeSupervisor(SPEC1.getId(), true)).andThrow(recreationFailure);
+
+    setupMockRequest();
+    replayAll();
+
+    Assert.assertSame(
+        recreationFailure,
+        Assert.assertThrows(RuntimeException.class, () -> supervisorResource.suspendAll(request))
+    );
+    verifyAll();
+  }
+
+  @Test
   public void testSuspendAllWithPartialAuthorization()
   {
     EasyMock.expect(taskMaster.getSupervisorManager()).andReturn(Optional.of(supervisorManager));
