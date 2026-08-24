@@ -21,6 +21,7 @@ package org.apache.druid.indexing.overlord.supervisor;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.ListenableFuture;
@@ -35,6 +36,7 @@ import org.apache.druid.indexing.overlord.supervisor.autoscaler.SupervisorTaskAu
 import org.apache.druid.indexing.seekablestream.supervisor.SeekableStreamSupervisor;
 import org.apache.druid.indexing.seekablestream.supervisor.SeekableStreamSupervisorSpec;
 import org.apache.druid.java.util.common.Pair;
+import org.apache.druid.java.util.common.StringUtils;
 import org.apache.druid.java.util.common.lifecycle.LifecycleStart;
 import org.apache.druid.java.util.common.lifecycle.LifecycleStop;
 import org.apache.druid.java.util.emitter.EmittingLogger;
@@ -48,12 +50,18 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Future;
 
 /**
  * Manages the creation and lifetime of {@link Supervisor}.
+ * <p>
+ * Metadata repair and compensation use unconditional writes because {@link MetadataSupervisorManager} does not expose
+ * a conditional-write API. Tombstone checks are therefore best effort: a concurrent metadata update can occur between
+ * a check and the following insert and can be superseded by that insert. Strong concurrency guarantees require a
+ * revision-aware conditional write in the metadata layer.
  */
 public class SupervisorManager
 {
@@ -468,19 +476,367 @@ public class SupervisorManager
    * Caller should have acquired [lock] before invoking this method to avoid contention with other threads that may be
    * starting, stopping, suspending and resuming supervisors.
    *
-   * @return true if a supervisor was suspended or resumed, false if there was no supervisor with this id
-   * or suspend a suspended supervisor or resume a running supervisor
+   * @return true if the supervisor was suspended or resumed, or if metadata was repaired to match an already applied
+   * runtime state, false if the supervisor does not exist, already has the requested state with matching metadata, or
+   * metadata repair could not be completed
    */
   private boolean possiblySuspendOrResumeSupervisorInternal(String id, boolean suspend)
   {
-    Pair<Supervisor, SupervisorSpec> pair = supervisors.get(id);
-    if (pair == null || pair.rhs.isSuspended() == suspend) {
+    final Pair<Supervisor, SupervisorSpec> previousPair = supervisors.get(id);
+    if (previousPair == null) {
+      return false;
+    }
+    if (previousPair.rhs.isSuspended() == suspend) {
+      return repairMetadataForAppliedTransitionIfNeeded(id, previousPair.rhs);
+    }
+
+    final SupervisorSpec previousSpec = previousPair.rhs;
+    final SupervisorSpec nextSpec = suspend ? previousSpec.createSuspendedSpec() : previousSpec.createRunningSpec();
+    Preconditions.checkState(
+        id.equals(nextSpec.getId()),
+        "Suspended or running supervisor spec must preserve id [%s], but generated id [%s]",
+        id,
+        nextSpec.getId()
+    );
+
+    persistTransitionSpec(id, previousSpec, nextSpec);
+
+    final SupervisorTaskAutoScaler previousAutoscaler = autoscalers.get(id);
+    try {
+      // keep both entries visible until all stop calls have returned successfully
+      if (previousAutoscaler != null) {
+        previousAutoscaler.stop();
+      }
+      previousPair.lhs.stop(true);
+    }
+    catch (Exception | LinkageError stopException) {
+      compensateMetadata(id, previousSpec, stopException, "stopping the previous runtime");
+      emitTransitionAlert(
+          stopException,
+          id,
+          "stopping the previous runtime",
+          "Failed to stop previous runtime for supervisor [%s]; runtime state is unverified and the existing "
+          + "supervisor entry remains registered",
+          id
+      );
+      throw asUnchecked(stopException);
+    }
+
+    final SupervisorRuntime replacementRuntime = new SupervisorRuntime();
+    try {
+      createAndStartSupervisorRuntime(nextSpec, replacementRuntime);
+      registerSupervisorRuntime(nextSpec, replacementRuntime);
+      return true;
+    }
+    catch (Exception | LinkageError recreationException) {
+      cleanupRuntime(replacementRuntime, recreationException, "replacement", id);
+      compensateMetadata(id, previousSpec, recreationException, "recreating the replacement runtime");
+      restorePreviousRuntime(id, previousSpec, recreationException);
+      throw asUnchecked(recreationException);
+    }
+  }
+
+  /**
+   * Repairs metadata when the requested state is already active in memory. This makes retries reconcile an ambiguous
+   * prior metadata write without restarting a healthy runtime.
+   */
+  private boolean repairMetadataForAppliedTransitionIfNeeded(String id, SupervisorSpec runtimeSpec)
+  {
+    try {
+      final SupervisorSpec latestSpec = getLatestMetadataSpec(id);
+      if (latestSpec instanceof NoopSupervisorSpec) {
+        warnTombstoneConflict(id, null, "checking an already applied supervisor transition");
+        return false;
+      }
+      if (specsExactlyMatch(runtimeSpec, latestSpec)) {
+        return false;
+      }
+      metadataSupervisorManager.insert(id, runtimeSpec);
+      return true;
+    }
+    catch (Exception | LinkageError e) {
+      log.error(
+          e,
+          "Unable to reconcile metadata for supervisor [%s], %s",
+          id,
+          repairInstruction(id, runtimeSpec)
+      );
+      return false;
+    }
+  }
+
+  // persists the requested transition before touching the current runtime
+  private void persistTransitionSpec(String id, SupervisorSpec previousSpec, SupervisorSpec nextSpec)
+  {
+    try {
+      metadataSupervisorManager.insert(id, nextSpec);
+    }
+    catch (RuntimeException | LinkageError insertException) {
+      final SupervisorSpec latestSpec = readLatestQuietly(id, insertException);
+      final boolean transitionSpecIsLatest;
+      final boolean previousSpecIsLatest;
+      try {
+        transitionSpecIsLatest = specsExactlyMatch(nextSpec, latestSpec);
+        previousSpecIsLatest = !transitionSpecIsLatest && specsExactlyMatch(previousSpec, latestSpec);
+      }
+      catch (RuntimeException | LinkageError comparisonException) {
+        addSuppressed(insertException, comparisonException);
+        compensateMetadata(id, previousSpec, insertException, "persisting the transition spec");
+        throw asUnchecked(insertException);
+      }
+      if (transitionSpecIsLatest) {
+        log.warn(
+            insertException,
+            "Insert of transition spec [%s] reported failure, but readback confirmed it committed",
+            id
+        );
+        return;
+      }
+      if (!previousSpecIsLatest) {
+        if (latestSpec instanceof NoopSupervisorSpec) {
+          warnTombstoneConflict(id, insertException, "persisting the transition spec");
+        } else {
+          compensateMetadata(id, previousSpec, insertException, "persisting the transition spec");
+        }
+      }
+      throw asUnchecked(insertException);
+    }
+  }
+
+  /**
+   * Appends {@code previousSpec} to compensate for a failed transition. Readback distinguishes a committed write from
+   * an unconfirmed compensation while retaining the primary lifecycle or transition exception.
+   */
+  private void compensateMetadata(
+      String id,
+      SupervisorSpec previousSpec,
+      Throwable primaryException,
+      String transitionStage
+  )
+  {
+    final SupervisorSpec latestBeforeInsert = readLatestQuietly(id, primaryException);
+    if (latestBeforeInsert instanceof NoopSupervisorSpec) {
+      warnTombstoneConflict(id, primaryException, transitionStage);
+      return;
+    }
+
+    try {
+      metadataSupervisorManager.insert(id, previousSpec);
+    }
+    catch (RuntimeException | LinkageError compensationException) {
+      final SupervisorSpec latestSpec = readLatestQuietly(id, compensationException);
+      try {
+        if (specsExactlyMatch(previousSpec, latestSpec)) {
+          log.warn(
+              compensationException,
+              "Metadata compensation for supervisor [%s] reported failure, but readback confirmed it committed",
+              id
+          );
+          return;
+        }
+      }
+      catch (RuntimeException | LinkageError comparisonException) {
+        addSuppressed(compensationException, comparisonException);
+      }
+
+      addSuppressed(primaryException, compensationException);
+      if (latestSpec instanceof NoopSupervisorSpec) {
+        warnTombstoneConflict(id, compensationException, transitionStage);
+        return;
+      }
+      emitTransitionAlert(
+          compensationException,
+          id,
+          transitionStage,
+          "Unable to confirm metadata compensation for supervisor [%s] after failure while [%s], runtime state may "
+          + "differ from the latest metadata revision, %s",
+          id,
+          transitionStage,
+          repairInstruction(id, previousSpec)
+      );
+    }
+  }
+
+  @Nullable
+  private SupervisorSpec readLatestQuietly(String id, Throwable primaryException)
+  {
+    try {
+      return getLatestMetadataSpec(id);
+    }
+    catch (RuntimeException | LinkageError readException) {
+      addSuppressed(primaryException, readException);
+      return null;
+    }
+  }
+
+  private void warnTombstoneConflict(String id, @Nullable Throwable exception, String transitionStage)
+  {
+    if (exception == null) {
+      log.warn(
+          "Tombstone observed for supervisor [%s] while [%s]; skipping best-effort metadata write",
+          id,
+          transitionStage
+      );
+    } else {
+      log.warn(
+          exception,
+          "Tombstone observed for supervisor [%s] while [%s]; skipping best-effort metadata write",
+          id,
+          transitionStage
+      );
+    }
+  }
+
+  private static String repairInstruction(String id, SupervisorSpec spec)
+  {
+    return StringUtils.format(
+        "re-issue POST /supervisor/%s/%s to reconcile",
+        id,
+        spec.isSuspended() ? "suspend" : "resume"
+    );
+  }
+
+  @Nullable
+  private SupervisorSpec getLatestMetadataSpec(String id)
+  {
+    final List<VersionedSupervisorSpec> versions = metadataSupervisorManager.getAllForId(id, 1);
+    return versions.isEmpty() ? null : versions.get(0).getSpec();
+  }
+
+  private void emitTransitionAlert(
+      @Nullable Throwable primaryException,
+      String supervisorId,
+      String stage,
+      String message,
+      Object... arguments
+  )
+  {
+    try {
+      log.makeAlert(primaryException, message, arguments)
+         .addData("supervisorId", supervisorId)
+         .addData("stage", stage)
+         .emit();
+    }
+    catch (Throwable alertException) {
+      log.error(alertException, "Failed to emit supervisor metadata inconsistency alert");
+    }
+  }
+
+  @VisibleForTesting
+  boolean specsExactlyMatch(SupervisorSpec expected, @Nullable SupervisorSpec actual)
+  {
+    if (actual == null
+        || !expected.getClass().equals(actual.getClass())
+        || !Objects.equals(expected.getType(), actual.getType())
+        || !Objects.equals(expected.getId(), actual.getId())) {
       return false;
     }
 
-    SupervisorSpec nextState = suspend ? pair.rhs.createSuspendedSpec() : pair.rhs.createRunningSpec();
-    possiblyStopAndRemoveSupervisorInternal(nextState.getId(), false);
-    return createAndStartSupervisorInternal(nextState, true);
+    try {
+      return Objects.equals(jsonMapper.valueToTree(expected), jsonMapper.valueToTree(actual));
+    }
+    catch (IllegalArgumentException e) {
+      throw new RuntimeException("Unable to serialize supervisor specs for exact metadata comparison", e);
+    }
+  }
+
+  private void restorePreviousRuntime(
+      String id,
+      SupervisorSpec previousSpec,
+      Throwable primaryException
+  )
+  {
+    final SupervisorRuntime restoredRuntime = new SupervisorRuntime();
+    try {
+      createAndStartSupervisorRuntime(previousSpec, restoredRuntime);
+      registerSupervisorRuntime(previousSpec, restoredRuntime);
+    }
+    catch (Exception | LinkageError restorationException) {
+      addSuppressed(primaryException, restorationException);
+      cleanupRuntime(restoredRuntime, primaryException, "restored previous", id);
+      supervisors.remove(id);
+      autoscalers.remove(id);
+      emitTransitionAlert(
+          restorationException,
+          id,
+          "restoring the previous runtime",
+          "Failed to restore previous runtime for supervisor [%s], re-submit the previous supervisor spec with "
+          + "POST /supervisor to recreate the runtime",
+          id
+      );
+    }
+  }
+
+  private void cleanupRuntime(
+      SupervisorRuntime runtime,
+      Throwable primaryException,
+      String runtimeDescription,
+      String id
+  )
+  {
+    if (runtime.autoscaler != null) {
+      try {
+        runtime.autoscaler.stop();
+      }
+      catch (Exception | LinkageError cleanupException) {
+        addSuppressed(primaryException, cleanupException);
+        log.warn(cleanupException, "Failed to stop %s autoscaler for supervisor [%s]", runtimeDescription, id);
+      }
+    }
+    if (runtime.supervisor != null) {
+      try {
+        runtime.supervisor.stop(true);
+      }
+      catch (Exception | LinkageError cleanupException) {
+        addSuppressed(primaryException, cleanupException);
+        log.warn(cleanupException, "Failed to stop %s supervisor [%s]", runtimeDescription, id);
+      }
+    }
+  }
+
+  private void createAndStartSupervisorRuntime(SupervisorSpec spec, SupervisorRuntime runtime)
+  {
+    runtime.supervisor = spec.createSupervisor();
+    runtime.autoscaler = runtime.supervisor.createAutoscaler(spec);
+    runtime.supervisor.start();
+    if (runtime.autoscaler != null) {
+      runtime.autoscaler.start();
+    }
+  }
+
+  private void registerSupervisorRuntime(SupervisorSpec spec, SupervisorRuntime runtime)
+  {
+    final String id = spec.getId();
+    supervisors.put(id, Pair.of(runtime.supervisor, spec));
+    if (runtime.autoscaler == null) {
+      autoscalers.remove(id);
+    } else {
+      autoscalers.put(id, runtime.autoscaler);
+    }
+  }
+
+  private static void addSuppressed(Throwable primaryException, Throwable secondaryException)
+  {
+    if (!Objects.equals(primaryException, secondaryException)) {
+      primaryException.addSuppressed(secondaryException);
+    }
+  }
+
+  private static RuntimeException asUnchecked(Throwable throwable)
+  {
+    if (throwable instanceof RuntimeException) {
+      return (RuntimeException) throwable;
+    }
+    if (throwable instanceof Error) {
+      throw (Error) throwable;
+    }
+    return new RuntimeException(throwable);
+  }
+
+  private static class SupervisorRuntime
+  {
+    private Supervisor supervisor;
+    private SupervisorTaskAutoScaler autoscaler;
   }
 
   /**
@@ -498,16 +854,9 @@ public class SupervisorManager
       return false;
     }
 
-    Supervisor supervisor;
-    SupervisorTaskAutoScaler autoscaler;
+    final SupervisorRuntime runtime = new SupervisorRuntime();
     try {
-      supervisor = spec.createSupervisor();
-      autoscaler = supervisor.createAutoscaler(spec);
-
-      supervisor.start();
-      if (autoscaler != null) {
-        autoscaler.start();
-      }
+      createAndStartSupervisorRuntime(spec, runtime);
     }
     catch (Exception e) {
       log.error("Failed to create and start supervisor: [%s]", spec.getId());
@@ -518,10 +867,7 @@ public class SupervisorManager
       metadataSupervisorManager.insert(id, spec);
     }
 
-    supervisors.put(id, Pair.of(supervisor, spec));
-    if (autoscaler != null) {
-      autoscalers.put(id, autoscaler);
-    }
+    registerSupervisorRuntime(spec, runtime);
 
     return true;
   }
