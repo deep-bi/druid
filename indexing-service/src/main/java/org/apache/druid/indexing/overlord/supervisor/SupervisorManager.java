@@ -515,7 +515,7 @@ public class SupervisorManager
           stopException,
           id,
           "stopping the previous runtime",
-          "Failed to stop previous runtime for supervisor [%s]; runtime state is unverified and the existing "
+          "Failed to stop previous runtime for supervisor [%s], runtime state is unverified and the existing "
           + "supervisor entry remains registered",
           id
       );
