@@ -33,6 +33,7 @@ import org.apache.druid.java.util.common.RetryUtils.Task;
 import org.apache.druid.java.util.common.StringUtils;
 import org.apache.druid.java.util.common.URIs;
 import org.apache.druid.java.util.common.logger.Logger;
+import software.amazon.awssdk.core.checksums.RequestChecksumCalculation;
 import software.amazon.awssdk.core.exception.SdkClientException;
 import software.amazon.awssdk.core.exception.SdkException;
 import software.amazon.awssdk.http.apache.ProxyConfiguration;
@@ -148,7 +149,9 @@ public class S3Utils
   {
     if (clientConfig.isEnableLegacyMd5()) {
       log.info("Legacy MD5 compatibility mode is enabled for the S3 client.");
-      s3ClientBuilder.addPlugin(LegacyMd5Plugin.create());
+      s3ClientBuilder
+          .requestChecksumCalculation(RequestChecksumCalculation.WHEN_REQUIRED)
+          .addPlugin(LegacyMd5Plugin.create());
     }
   }
 
