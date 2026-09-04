@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-ARG JDK_VERSION=8-jdk
+ARG JDK_VERSION=8-jdk-jammy
 FROM eclipse-temurin:$JDK_VERSION as druidbase
 
 # Bundle everything into one script so cleanup can reduce image size.

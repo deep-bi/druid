@@ -223,7 +223,7 @@ name: Jackson
 license_category: binary
 module: java-core
 license_name: Apache License version 2.0
-version: 2.18.4.1
+version: 2.18.8
 libraries:
   - com.fasterxml.jackson.core: jackson-core
 notice: |
@@ -254,7 +254,7 @@ name: Jackson
 license_category: binary
 module: java-core
 license_name: Apache License version 2.0
-version: 2.18.4
+version: 2.18.8
 libraries:
   - com.fasterxml.jackson.core: jackson-annotations
   - com.fasterxml.jackson.dataformat: jackson-dataformat-cbor
@@ -296,7 +296,7 @@ name: Jackson
 license_category: binary
 module: java-core
 license_name: Apache License version 2.0
-version: 2.18.4
+version: 2.18.8
 libraries:
   - com.fasterxml.jackson.core: jackson-databind
 notice: |
@@ -1279,7 +1279,7 @@ name: Netty
 license_category: binary
 module: java-core
 license_name: Apache License version 2.0
-version: 4.1.108.Final
+version: 4.1.136.Final
 libraries:
   - io.netty: netty-buffer
   - io.netty: netty-codec
@@ -1831,7 +1831,7 @@ name: Apache Log4j
 license_category: binary
 module: java-core
 license_name: Apache License version 2.0
-version: 2.22.1
+version: 2.25.5
 libraries:
   - org.apache.logging.log4j: log4j-1.2-api
   - org.apache.logging.log4j: log4j-api
@@ -2018,7 +2018,7 @@ name: Apache Zookeeper
 license_category: binary
 module: java-core
 license_name: Apache License version 2.0
-version: 3.8.4
+version: 3.8.6
 libraries:
   - org.apache.zookeeper: zookeeper
   - org.apache.zookeeper: zookeeper-jute
@@ -2861,7 +2861,7 @@ libraries:
 ---
 
 name: Jackson Dataformat Yaml
-version: 2.18.4
+version: 2.18.8
 license_category: binary
 module: extensions/druid-avro-extensions
 license_name: Apache License version 2.0
