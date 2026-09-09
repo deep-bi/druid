@@ -29,7 +29,7 @@
 
     <groupId>org.apache.druid</groupId>
     <artifactId>druid</artifactId>
-    <version>36.0.0-deepbi2</version>
+    <version>36.0.0-deepbi3</version>
     <packaging>pom</packaging>
 
     <name>Druid</name>
@@ -128,7 +128,7 @@
         <testcontainers.version>1.21.3</testcontainers.version>
         <hibernate-validator.version>6.2.5.Final</hibernate-validator.version>
         <httpclient.version>4.5.13</httpclient.version>
-        <!-- When upgrading ZK, edit docs and integration tests as well (integration-tests/docker-base/setup.sh) -->
+        <!-- When upgrading ZK, edit docs and integration tests as well (integration-tests/docker/base-setup.sh) -->
         <zookeeper.version>3.8.6</zookeeper.version>
         <checkerframework.version>3.48.1</checkerframework.version>
         <com.google.apis.client.version>2.2.0</com.google.apis.client.version>
