@@ -574,6 +574,21 @@ public class SupervisorResourceTest extends EasyMockSupport
   }
 
   @Test
+  public void testSpecSuspendPropagatesManagerFailure()
+  {
+    final RuntimeException transitionFailure = new RuntimeException("transition failed");
+    EasyMock.expect(taskMaster.getSupervisorManager()).andReturn(Optional.of(supervisorManager));
+    EasyMock.expect(supervisorManager.suspendOrResumeSupervisor("my-id", true)).andThrow(transitionFailure);
+    replayAll();
+
+    Assert.assertSame(
+        transitionFailure,
+        Assert.assertThrows(RuntimeException.class, () -> supervisorResource.specSuspend("my-id"))
+    );
+    verifyAll();
+  }
+
+  @Test
   public void testSpecResume()
   {
     TestSupervisorSpec running = new TestSupervisorSpec("my-id", null, null, false)

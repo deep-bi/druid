@@ -19,6 +19,8 @@
 
 package org.apache.druid.indexing.overlord.supervisor;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.InjectableValues;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
@@ -28,9 +30,13 @@ import com.google.common.util.concurrent.SettableFuture;
 import org.apache.druid.error.DruidException;
 import org.apache.druid.error.DruidExceptionMatcher;
 import org.apache.druid.error.InvalidInput;
+import org.apache.druid.guice.SupervisorModule;
 import org.apache.druid.indexing.common.TaskLockType;
 import org.apache.druid.indexing.common.task.Tasks;
+import org.apache.druid.indexing.compact.CompactionScheduler;
+import org.apache.druid.indexing.compact.CompactionSupervisorSpec;
 import org.apache.druid.indexing.overlord.DataSourceMetadata;
+import org.apache.druid.indexing.overlord.supervisor.autoscaler.SupervisorTaskAutoScaler;
 import org.apache.druid.indexing.seekablestream.SeekableStreamStartSequenceNumbers;
 import org.apache.druid.indexing.seekablestream.TestSeekableStreamDataSourceMetadata;
 import org.apache.druid.indexing.seekablestream.supervisor.SeekableStreamSupervisor;
@@ -38,9 +44,13 @@ import org.apache.druid.indexing.seekablestream.supervisor.SeekableStreamSupervi
 import org.apache.druid.jackson.DefaultObjectMapper;
 import org.apache.druid.java.util.common.DateTimes;
 import org.apache.druid.java.util.common.Intervals;
+import org.apache.druid.java.util.emitter.EmittingLogger;
+import org.apache.druid.java.util.emitter.service.AlertEvent;
+import org.apache.druid.java.util.metrics.StubServiceEmitter;
 import org.apache.druid.metadata.MetadataSupervisorManager;
 import org.apache.druid.metadata.PendingSegmentRecord;
 import org.apache.druid.segment.realtime.appenderator.SegmentIdWithShardSpec;
+import org.apache.druid.server.coordinator.InlineSchemaDataSourceCompactionConfig;
 import org.apache.druid.timeline.partition.NumberedShardSpec;
 import org.easymock.Capture;
 import org.easymock.EasyMock;
@@ -55,8 +65,11 @@ import org.junit.Test;
 import org.junit.rules.ExpectedException;
 import org.junit.runner.RunWith;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Deque;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -78,6 +91,7 @@ public class SupervisorManagerTest extends EasyMockSupport
   private Supervisor supervisor3;
 
   private SupervisorManager manager;
+  private StubServiceEmitter emitter;
 
   @Rule
   public final ExpectedException exception = ExpectedException.none();
@@ -85,6 +99,8 @@ public class SupervisorManagerTest extends EasyMockSupport
   @Before
   public void setUp()
   {
+    emitter = new StubServiceEmitter("supervisor-manager-test", "localhost");
+    EmittingLogger.registerEmitter(emitter);
     manager = new SupervisorManager(MAPPER, metadataSupervisorManager);
   }
 
@@ -644,6 +660,952 @@ public class SupervisorManagerTest extends EasyMockSupport
   }
 
   @Test
+  public void testSuspendTransitionPersistsBeforeStoppingAndReplacesRuntime()
+  {
+    final List<String> events = new ArrayList<>();
+    final TestMetadataSupervisorManager metadata = new TestMetadataSupervisorManager(events);
+    final Supervisor oldSupervisor = EasyMock.createMock(Supervisor.class);
+    final Supervisor replacementSupervisor = EasyMock.createMock(Supervisor.class);
+    final SupervisorTaskAutoScaler oldAutoscaler = EasyMock.createMock(SupervisorTaskAutoScaler.class);
+    final SupervisorTaskAutoScaler replacementAutoscaler = EasyMock.createMock(SupervisorTaskAutoScaler.class);
+    final TransitionSupervisorSpec previousSpec = new TransitionSupervisorSpec(
+        "id",
+        false,
+        "running",
+        oldSupervisor
+    );
+    final TransitionSupervisorSpec nextSpec = new TransitionSupervisorSpec(
+        "id",
+        true,
+        "suspended",
+        replacementSupervisor
+    );
+    previousSpec.suspendedSpec = nextSpec;
+
+    startManager(metadata, previousSpec, oldSupervisor, oldAutoscaler);
+    events.clear();
+
+    oldAutoscaler.stop();
+    EasyMock.expectLastCall().andAnswer(() -> {
+      events.add("oldAutoscaler.stop");
+      return null;
+    });
+    oldSupervisor.stop(true);
+    EasyMock.expectLastCall().andAnswer(() -> {
+      events.add("oldSupervisor.stop");
+      return null;
+    });
+    EasyMock.expect(replacementSupervisor.createAutoscaler(nextSpec)).andReturn(replacementAutoscaler);
+    replacementSupervisor.start();
+    EasyMock.expectLastCall().andAnswer(() -> {
+      Assert.assertSame(previousSpec, manager.getSupervisorSpec("id").get());
+      events.add("replacementSupervisor.start");
+      return null;
+    });
+    replacementAutoscaler.start();
+    EasyMock.expectLastCall().andAnswer(() -> {
+      events.add("replacementAutoscaler.start");
+      return null;
+    });
+    EasyMock.replay(oldSupervisor, oldAutoscaler, replacementSupervisor, replacementAutoscaler);
+
+    Assert.assertTrue(manager.suspendOrResumeSupervisor("id", true));
+    Assert.assertSame(nextSpec, manager.getSupervisorSpec("id").get());
+    Assert.assertEquals(
+        ImmutableList.of(
+            "insert:suspended",
+            "oldAutoscaler.stop",
+            "oldSupervisor.stop",
+            "replacementSupervisor.start",
+            "replacementAutoscaler.start"
+        ),
+        events
+    );
+    EasyMock.verify(oldSupervisor, oldAutoscaler, replacementSupervisor, replacementAutoscaler);
+  }
+
+  @Test
+  public void testResumeTransitionPersistsBeforeStoppingAndReplacesRuntime()
+  {
+    final List<String> events = new ArrayList<>();
+    final TestMetadataSupervisorManager metadata = new TestMetadataSupervisorManager(events);
+    final Supervisor oldSupervisor = EasyMock.createMock(Supervisor.class);
+    final Supervisor replacementSupervisor = EasyMock.createMock(Supervisor.class);
+    final SupervisorTaskAutoScaler oldAutoscaler = EasyMock.createMock(SupervisorTaskAutoScaler.class);
+    final SupervisorTaskAutoScaler replacementAutoscaler = EasyMock.createMock(SupervisorTaskAutoScaler.class);
+    final TransitionSupervisorSpec previousSpec = new TransitionSupervisorSpec(
+        "id",
+        true,
+        "suspended",
+        oldSupervisor
+    );
+    final TransitionSupervisorSpec nextSpec = new TransitionSupervisorSpec(
+        "id",
+        false,
+        "running",
+        replacementSupervisor
+    );
+    previousSpec.runningSpec = nextSpec;
+
+    startManager(metadata, previousSpec, oldSupervisor, oldAutoscaler);
+    events.clear();
+
+    oldAutoscaler.stop();
+    EasyMock.expectLastCall().andAnswer(() -> {
+      events.add("oldAutoscaler.stop");
+      return null;
+    });
+    oldSupervisor.stop(true);
+    EasyMock.expectLastCall().andAnswer(() -> {
+      events.add("oldSupervisor.stop");
+      return null;
+    });
+    EasyMock.expect(replacementSupervisor.createAutoscaler(nextSpec)).andReturn(replacementAutoscaler);
+    replacementSupervisor.start();
+    EasyMock.expectLastCall().andAnswer(() -> {
+      Assert.assertSame(previousSpec, manager.getSupervisorSpec("id").get());
+      events.add("replacementSupervisor.start");
+      return null;
+    });
+    replacementAutoscaler.start();
+    EasyMock.expectLastCall().andAnswer(() -> {
+      events.add("replacementAutoscaler.start");
+      return null;
+    });
+    EasyMock.replay(oldSupervisor, oldAutoscaler, replacementSupervisor, replacementAutoscaler);
+
+    Assert.assertTrue(manager.suspendOrResumeSupervisor("id", false));
+    Assert.assertSame(nextSpec, manager.getSupervisorSpec("id").get());
+    Assert.assertEquals(
+        ImmutableList.of(
+            "insert:running",
+            "oldAutoscaler.stop",
+            "oldSupervisor.stop",
+            "replacementSupervisor.start",
+            "replacementAutoscaler.start"
+        ),
+        events
+    );
+    EasyMock.verify(oldSupervisor, oldAutoscaler, replacementSupervisor, replacementAutoscaler);
+  }
+
+  @Test
+  public void testResumeTransitionInsertFailureLeavesRuntimeUntouched()
+  {
+    final RuntimeException insertFailure = new RuntimeException("insert failed");
+    final TestMetadataSupervisorManager metadata = new TestMetadataSupervisorManager();
+    final Supervisor oldSupervisor = EasyMock.createMock(Supervisor.class);
+    final TransitionSupervisorSpec previousSpec = new TransitionSupervisorSpec("id", true, "suspended", oldSupervisor);
+    final TransitionSupervisorSpec nextSpec = new TransitionSupervisorSpec("id", false, "running", oldSupervisor);
+    previousSpec.runningSpec = nextSpec;
+    startManager(metadata, previousSpec, oldSupervisor, null);
+    metadata.addInsertFailure(false, insertFailure);
+
+    EasyMock.replay(oldSupervisor);
+    Assert.assertSame(
+        insertFailure,
+        Assert.assertThrows(RuntimeException.class, () -> manager.suspendOrResumeSupervisor("id", false))
+    );
+    Assert.assertSame(previousSpec, manager.getSupervisorSpec("id").get());
+    Assert.assertSame(previousSpec, metadata.latest.get("id"));
+    Assert.assertEquals(1, metadata.inserts.size());
+    EasyMock.verify(oldSupervisor);
+  }
+
+  @Test
+  public void testResumeReplacementStartFailureRestoresPreviousRuntime()
+  {
+    final RuntimeException startFailure = new RuntimeException("replacement start failed");
+    final TestMetadataSupervisorManager metadata = new TestMetadataSupervisorManager();
+    final Supervisor oldSupervisor = EasyMock.createMock(Supervisor.class);
+    final Supervisor restoredSupervisor = EasyMock.createMock(Supervisor.class);
+    final Supervisor replacementSupervisor = EasyMock.createMock(Supervisor.class);
+    final TransitionSupervisorSpec previousSpec = new TransitionSupervisorSpec(
+        "id",
+        true,
+        "suspended",
+        oldSupervisor,
+        restoredSupervisor
+    );
+    final TransitionSupervisorSpec nextSpec = new TransitionSupervisorSpec(
+        "id",
+        false,
+        "running",
+        replacementSupervisor
+    );
+    previousSpec.runningSpec = nextSpec;
+    startManager(metadata, previousSpec, oldSupervisor, null);
+
+    oldSupervisor.stop(true);
+    EasyMock.expect(replacementSupervisor.createAutoscaler(nextSpec)).andReturn(null);
+    replacementSupervisor.start();
+    EasyMock.expectLastCall().andThrow(startFailure);
+    replacementSupervisor.stop(true);
+    EasyMock.expect(restoredSupervisor.createAutoscaler(previousSpec)).andReturn(null);
+    restoredSupervisor.start();
+    EasyMock.replay(oldSupervisor, restoredSupervisor, replacementSupervisor);
+
+    Assert.assertSame(
+        startFailure,
+        Assert.assertThrows(RuntimeException.class, () -> manager.suspendOrResumeSupervisor("id", false))
+    );
+    Assert.assertSame(previousSpec, metadata.latest.get("id"));
+    Assert.assertSame(previousSpec, manager.getSupervisorSpec("id").get());
+    EasyMock.verify(oldSupervisor, restoredSupervisor, replacementSupervisor);
+  }
+
+  @Test
+  public void testSuspendOrResumeNoopWithMatchingMetadataDoesNotPersistOrRestartRuntime()
+  {
+    final TestMetadataSupervisorManager metadata = new TestMetadataSupervisorManager();
+    final Supervisor oldSupervisor = EasyMock.createMock(Supervisor.class);
+    final TransitionSupervisorSpec runningSpec = new TransitionSupervisorSpec("id", false, "running", oldSupervisor);
+    startManager(metadata, runningSpec, oldSupervisor, null);
+
+    EasyMock.replay(oldSupervisor);
+    Assert.assertFalse(manager.suspendOrResumeSupervisor("id", false));
+    Assert.assertEquals(1, metadata.reads);
+    Assert.assertEquals(0, metadata.inserts.size());
+    EasyMock.verify(oldSupervisor);
+  }
+
+  @Test
+  public void testSuspendOrResumeNoopIgnoresMetadataReadFailure()
+  {
+    final TestMetadataSupervisorManager metadata = new TestMetadataSupervisorManager();
+    final Supervisor oldSupervisor = EasyMock.createMock(Supervisor.class);
+    final TransitionSupervisorSpec runningSpec = new TransitionSupervisorSpec("id", false, "running", oldSupervisor);
+    startManager(metadata, runningSpec, oldSupervisor, null);
+    metadata.readFailures.add(new RuntimeException("read failed"));
+
+    EasyMock.replay(oldSupervisor);
+    Assert.assertFalse(manager.suspendOrResumeSupervisor("id", false));
+    Assert.assertEquals(1, metadata.reads);
+    Assert.assertEquals(0, metadata.inserts.size());
+    Assert.assertSame(runningSpec, manager.getSupervisorSpec("id").get());
+    Assert.assertTrue(emitter.getAlerts().isEmpty());
+    EasyMock.verify(oldSupervisor);
+  }
+
+  @Test
+  public void testSuspendOrResumeNoopIgnoresMetadataRepairFailure()
+  {
+    final RuntimeException repairFailure = new RuntimeException("repair failed");
+    final TestMetadataSupervisorManager metadata = new TestMetadataSupervisorManager();
+    final Supervisor oldSupervisor = EasyMock.createMock(Supervisor.class);
+    final TransitionSupervisorSpec runningSpec = new TransitionSupervisorSpec("id", false, "running", oldSupervisor);
+    startManager(metadata, runningSpec, oldSupervisor, null);
+    metadata.latest.put("id", new TransitionSupervisorSpec("id", true, "suspended", oldSupervisor));
+    metadata.addInsertFailure(false, repairFailure);
+
+    EasyMock.replay(oldSupervisor);
+    Assert.assertFalse(manager.suspendOrResumeSupervisor("id", false));
+    Assert.assertEquals(1, metadata.inserts.size());
+    Assert.assertSame(runningSpec, manager.getSupervisorSpec("id").get());
+    Assert.assertTrue(emitter.getAlerts().isEmpty());
+    EasyMock.verify(oldSupervisor);
+  }
+
+  @Test
+  public void testSuspendOrResumeNoopDoesNotAlertWhenRepairFindsConcurrentTombstone()
+  {
+    final RuntimeException repairFailure = new RuntimeException("repair failed");
+    final Supervisor oldSupervisor = EasyMock.createMock(Supervisor.class);
+    final TransitionSupervisorSpec runningSpec = new TransitionSupervisorSpec("id", false, "running", oldSupervisor);
+    final TestMetadataSupervisorManager metadata = new TestMetadataSupervisorManager()
+    {
+      @Override
+      public void insert(String id, SupervisorSpec spec)
+      {
+        try {
+          super.insert(id, spec);
+        }
+        catch (RuntimeException e) {
+          setLatest(id, new NoopSupervisorSpec(id, runningSpec.getDataSources()));
+          throw e;
+        }
+      }
+    };
+    startManager(metadata, runningSpec, oldSupervisor, null);
+    metadata.latest.put("id", new TransitionSupervisorSpec("id", true, "suspended", oldSupervisor));
+    metadata.addInsertFailure(false, repairFailure);
+
+    EasyMock.replay(oldSupervisor);
+    Assert.assertFalse(manager.suspendOrResumeSupervisor("id", false));
+    Assert.assertEquals(1, metadata.inserts.size());
+    Assert.assertTrue(metadata.latest.get("id") instanceof NoopSupervisorSpec);
+    Assert.assertSame(runningSpec, manager.getSupervisorSpec("id").get());
+    Assert.assertTrue(emitter.getAlerts().isEmpty());
+    EasyMock.verify(oldSupervisor);
+  }
+
+  @Test
+  public void testGeneratedTransitionSpecMustPreserveId()
+  {
+    final TestMetadataSupervisorManager metadata = new TestMetadataSupervisorManager();
+    final Supervisor oldSupervisor = EasyMock.createMock(Supervisor.class);
+    final TransitionSupervisorSpec previousSpec = new TransitionSupervisorSpec("id", false, "running", oldSupervisor);
+    previousSpec.suspendedSpec = new TransitionSupervisorSpec("different-id", true, "suspended", oldSupervisor);
+    startManager(metadata, previousSpec, oldSupervisor, null);
+
+    EasyMock.replay(oldSupervisor);
+    Assert.assertThrows(
+        IllegalStateException.class,
+        () -> manager.suspendOrResumeSupervisor("id", true)
+    );
+    Assert.assertSame(previousSpec, manager.getSupervisorSpec("id").get());
+    Assert.assertEquals(0, metadata.inserts.size());
+    EasyMock.verify(oldSupervisor);
+  }
+
+  @Test
+  public void testExactSpecComparisonSurvivesRealSpecJsonRoundTrip() throws Exception
+  {
+    final ObjectMapper mapper = new DefaultObjectMapper();
+    final CompactionScheduler scheduler = EasyMock.createNiceMock(CompactionScheduler.class);
+    EasyMock.replay(scheduler);
+    mapper.setInjectableValues(new InjectableValues.Std().addValue(CompactionScheduler.class, scheduler));
+    mapper.registerModules(new SupervisorModule().getJacksonModules());
+    final SupervisorSpec expected = new CompactionSupervisorSpec(
+        InlineSchemaDataSourceCompactionConfig.builder().forDataSource("datasource").build(),
+        false,
+        scheduler
+    );
+    final SupervisorSpec roundTripped = mapper.readValue(
+        mapper.writeValueAsBytes(expected),
+        SupervisorSpec.class
+    );
+
+    Assert.assertTrue(
+        new SupervisorManager(mapper, metadataSupervisorManager).specsExactlyMatch(expected, roundTripped)
+    );
+  }
+
+  @Test
+  public void testTransitionInsertFailureWithPreviousSpecLeavesRuntimeUntouched()
+  {
+    final RuntimeException insertFailure = new RuntimeException("insert failed");
+    final TestMetadataSupervisorManager metadata = new TestMetadataSupervisorManager();
+    final Supervisor oldSupervisor = EasyMock.createMock(Supervisor.class);
+    final TransitionSupervisorSpec previousSpec = new TransitionSupervisorSpec("id", false, "running", oldSupervisor);
+    previousSpec.suspendedSpec = new TransitionSupervisorSpec("id", true, "suspended", oldSupervisor);
+    startManager(metadata, previousSpec, oldSupervisor, null);
+    metadata.addInsertFailure(false, insertFailure);
+
+    EasyMock.replay(oldSupervisor);
+    Assert.assertSame(
+        insertFailure,
+        Assert.assertThrows(RuntimeException.class, () -> manager.suspendOrResumeSupervisor("id", true))
+    );
+    Assert.assertSame(previousSpec, manager.getSupervisorSpec("id").get());
+    Assert.assertSame(previousSpec, metadata.latest.get("id"));
+    Assert.assertEquals(1, metadata.inserts.size());
+    EasyMock.verify(oldSupervisor);
+  }
+
+  @Test
+  public void testTransitionInsertFailureRetainedWhenSpecComparisonFails()
+  {
+    final RuntimeException insertFailure = new RuntimeException("insert failed");
+    final RuntimeException serializationFailure = new RuntimeException("serialization failed");
+    final TestMetadataSupervisorManager metadata = new TestMetadataSupervisorManager()
+    {
+      @Override
+      public void insert(String id, SupervisorSpec spec)
+      {
+        try {
+          MAPPER.valueToTree(spec);
+        }
+        catch (IllegalArgumentException e) {
+          throw insertFailure;
+        }
+        super.insert(id, spec);
+      }
+    };
+    final Supervisor oldSupervisor = EasyMock.createMock(Supervisor.class);
+    final TransitionSupervisorSpec previousSpec = new TransitionSupervisorSpec("id", false, "running", oldSupervisor);
+    final TransitionSupervisorSpec nextSpec = new TransitionSupervisorSpec("id", true, "suspended", oldSupervisor);
+    nextSpec.serializationFailure = serializationFailure;
+    previousSpec.suspendedSpec = nextSpec;
+    startManager(metadata, previousSpec, oldSupervisor, null);
+
+    EasyMock.replay(oldSupervisor);
+    Assert.assertSame(
+        insertFailure,
+        Assert.assertThrows(RuntimeException.class, () -> manager.suspendOrResumeSupervisor("id", true))
+    );
+    Assert.assertEquals(1, insertFailure.getSuppressed().length);
+    final Throwable comparisonFailure = insertFailure.getSuppressed()[0];
+    Assert.assertEquals("Unable to serialize supervisor specs for exact metadata comparison", comparisonFailure.getMessage());
+    Throwable rootCause = comparisonFailure;
+    while (rootCause.getCause() != null) {
+      rootCause = rootCause.getCause();
+    }
+    Assert.assertSame(serializationFailure, rootCause);
+    Assert.assertSame(previousSpec, metadata.latest.get("id"));
+    Assert.assertSame(previousSpec, manager.getSupervisorSpec("id").get());
+    EasyMock.verify(oldSupervisor);
+  }
+
+  @Test
+  public void testTransitionInsertCommitThenThrowContinues()
+  {
+    final RuntimeException insertFailure = new RuntimeException("commit then throw");
+    final TestMetadataSupervisorManager metadata = new TestMetadataSupervisorManager();
+    final Supervisor oldSupervisor = EasyMock.createMock(Supervisor.class);
+    final Supervisor replacementSupervisor = EasyMock.createMock(Supervisor.class);
+    final TransitionSupervisorSpec previousSpec = new TransitionSupervisorSpec("id", false, "running", oldSupervisor);
+    final TransitionSupervisorSpec nextSpec = new TransitionSupervisorSpec("id", true, "suspended", replacementSupervisor);
+    previousSpec.suspendedSpec = nextSpec;
+    startManager(metadata, previousSpec, oldSupervisor, null);
+    metadata.addInsertFailure(true, insertFailure);
+
+    oldSupervisor.stop(true);
+    EasyMock.expect(replacementSupervisor.createAutoscaler(nextSpec)).andReturn(null);
+    replacementSupervisor.start();
+    EasyMock.replay(oldSupervisor, replacementSupervisor);
+
+    Assert.assertTrue(manager.suspendOrResumeSupervisor("id", true));
+    Assert.assertSame(nextSpec, metadata.latest.get("id"));
+    Assert.assertSame(nextSpec, manager.getSupervisorSpec("id").get());
+    EasyMock.verify(oldSupervisor, replacementSupervisor);
+  }
+
+  @Test
+  public void testSuccessfulTransitionPersistsWithoutReadingMetadata()
+  {
+    final TestMetadataSupervisorManager metadata = new TestMetadataSupervisorManager();
+    final Supervisor oldSupervisor = EasyMock.createMock(Supervisor.class);
+    final Supervisor replacementSupervisor = EasyMock.createMock(Supervisor.class);
+    final TransitionSupervisorSpec previousSpec = new TransitionSupervisorSpec("id", false, "running", oldSupervisor);
+    final TransitionSupervisorSpec nextSpec = new TransitionSupervisorSpec("id", true, "suspended", replacementSupervisor);
+    previousSpec.suspendedSpec = nextSpec;
+    startManager(metadata, previousSpec, oldSupervisor, null);
+    metadata.latest.put("id", nextSpec);
+
+    oldSupervisor.stop(true);
+    EasyMock.expect(replacementSupervisor.createAutoscaler(nextSpec)).andReturn(null);
+    replacementSupervisor.start();
+    EasyMock.replay(oldSupervisor, replacementSupervisor);
+
+    Assert.assertTrue(manager.suspendOrResumeSupervisor("id", true));
+    Assert.assertEquals(0, metadata.reads);
+    Assert.assertEquals(1, metadata.inserts.size());
+    Assert.assertSame(nextSpec, metadata.latest.get("id"));
+    Assert.assertSame(nextSpec, manager.getSupervisorSpec("id").get());
+    EasyMock.verify(oldSupervisor, replacementSupervisor);
+  }
+
+  @Test
+  public void testTransitionInsertFailureWithUnknownLatestCompensatesPreviousSpec()
+  {
+    final RuntimeException insertFailure = new RuntimeException("insert failed");
+    final TestMetadataSupervisorManager metadata = new TestMetadataSupervisorManager();
+    final Supervisor oldSupervisor = EasyMock.createMock(Supervisor.class);
+    final TransitionSupervisorSpec previousSpec = new TransitionSupervisorSpec("id", false, "running", oldSupervisor);
+    previousSpec.suspendedSpec = new TransitionSupervisorSpec("id", true, "suspended", oldSupervisor);
+    startManager(metadata, previousSpec, oldSupervisor, null);
+    metadata.latest.clear();
+    metadata.addInsertFailure(false, insertFailure);
+
+    EasyMock.replay(oldSupervisor);
+    Assert.assertSame(
+        insertFailure,
+        Assert.assertThrows(RuntimeException.class, () -> manager.suspendOrResumeSupervisor("id", true))
+    );
+    Assert.assertSame(previousSpec, metadata.latest.get("id"));
+    Assert.assertSame(previousSpec, manager.getSupervisorSpec("id").get());
+    Assert.assertEquals(2, metadata.inserts.size());
+    EasyMock.verify(oldSupervisor);
+  }
+
+  @Test
+  public void testTransitionInsertFailureWithTombstoneDoesNotResurrectPreviousSpec()
+  {
+    final RuntimeException insertFailure = new RuntimeException("insert failed");
+    final TestMetadataSupervisorManager metadata = new TestMetadataSupervisorManager();
+    final Supervisor oldSupervisor = EasyMock.createMock(Supervisor.class);
+    final TransitionSupervisorSpec previousSpec = new TransitionSupervisorSpec("id", false, "running", oldSupervisor);
+    previousSpec.suspendedSpec = new TransitionSupervisorSpec("id", true, "suspended", oldSupervisor);
+    startManager(metadata, previousSpec, oldSupervisor, null);
+    metadata.latest.put("id", new NoopSupervisorSpec("id", previousSpec.getDataSources()));
+    metadata.addInsertFailure(false, insertFailure);
+
+    EasyMock.replay(oldSupervisor);
+    Assert.assertSame(
+        insertFailure,
+        Assert.assertThrows(RuntimeException.class, () -> manager.suspendOrResumeSupervisor("id", true))
+    );
+    Assert.assertTrue(metadata.latest.get("id") instanceof NoopSupervisorSpec);
+    Assert.assertSame(previousSpec, manager.getSupervisorSpec("id").get());
+    Assert.assertEquals(1, metadata.inserts.size());
+    Assert.assertTrue(emitter.getAlerts().isEmpty());
+    EasyMock.verify(oldSupervisor);
+  }
+
+  @Test
+  public void testTransitionInsertFailureDoesNotAcceptSameStateWithDifferentConfiguration()
+  {
+    final RuntimeException insertFailure = new RuntimeException("insert failed");
+    final TestMetadataSupervisorManager metadata = new TestMetadataSupervisorManager();
+    final Supervisor oldSupervisor = EasyMock.createMock(Supervisor.class);
+    final TransitionSupervisorSpec previousSpec = new TransitionSupervisorSpec("id", false, "running", oldSupervisor);
+    final TransitionSupervisorSpec nextSpec = new TransitionSupervisorSpec("id", true, "requested", oldSupervisor);
+    previousSpec.suspendedSpec = nextSpec;
+    startManager(metadata, previousSpec, oldSupervisor, null);
+    metadata.latest.put("id", new TransitionSupervisorSpec("id", true, "different", oldSupervisor));
+    metadata.addInsertFailure(false, insertFailure);
+
+    EasyMock.replay(oldSupervisor);
+    Assert.assertSame(
+        insertFailure,
+        Assert.assertThrows(RuntimeException.class, () -> manager.suspendOrResumeSupervisor("id", true))
+    );
+    Assert.assertSame(previousSpec, metadata.latest.get("id"));
+    Assert.assertEquals(2, metadata.inserts.size());
+    EasyMock.verify(oldSupervisor);
+  }
+
+  @Test
+  public void testTransitionInsertReadAndCompensationFailuresAreSuppressed()
+  {
+    final RuntimeException insertFailure = new RuntimeException("insert failed");
+    final RuntimeException readFailure = new RuntimeException("read failed");
+    final RuntimeException compensationFailure = new RuntimeException("compensation failed");
+    final TestMetadataSupervisorManager metadata = new TestMetadataSupervisorManager();
+    final Supervisor oldSupervisor = EasyMock.createMock(Supervisor.class);
+    final TransitionSupervisorSpec previousSpec = new TransitionSupervisorSpec("id", false, "running", oldSupervisor);
+    previousSpec.suspendedSpec = new TransitionSupervisorSpec("id", true, "suspended", oldSupervisor);
+    startManager(metadata, previousSpec, oldSupervisor, null);
+    metadata.latest.clear();
+    metadata.addInsertFailure(false, insertFailure);
+    metadata.readFailures.add(readFailure);
+    metadata.addInsertFailure(false, compensationFailure);
+
+    EasyMock.replay(oldSupervisor);
+    Assert.assertSame(
+        insertFailure,
+        Assert.assertThrows(RuntimeException.class, () -> manager.suspendOrResumeSupervisor("id", true))
+    );
+    Assert.assertEquals(2, insertFailure.getSuppressed().length);
+    Assert.assertSame(readFailure, insertFailure.getSuppressed()[0]);
+    Assert.assertSame(compensationFailure, insertFailure.getSuppressed()[1]);
+    Assert.assertSame(previousSpec, manager.getSupervisorSpec("id").get());
+    assertTransitionAlert(
+        "Unable to confirm metadata compensation for supervisor [id] after failure while "
+        + "[persisting the transition spec], runtime state may differ from the latest metadata revision, "
+        + "re-issue POST /supervisor/id/resume to reconcile",
+        "persisting the transition spec"
+    );
+    EasyMock.verify(oldSupervisor);
+  }
+
+  @Test
+  public void testAutoscalerStopFailureRollsBackMetadataAndKeepsOldEntry()
+  {
+    final RuntimeException stopFailure = new RuntimeException("autoscaler stop failed");
+    final TestMetadataSupervisorManager metadata = new TestMetadataSupervisorManager();
+    final Supervisor oldSupervisor = EasyMock.createMock(Supervisor.class);
+    final Supervisor replacementSupervisor = EasyMock.createMock(Supervisor.class);
+    final SupervisorTaskAutoScaler oldAutoscaler = EasyMock.createMock(SupervisorTaskAutoScaler.class);
+    final TransitionSupervisorSpec previousSpec = new TransitionSupervisorSpec("id", false, "running", oldSupervisor);
+    previousSpec.suspendedSpec = new TransitionSupervisorSpec("id", true, "suspended", replacementSupervisor);
+    startManager(metadata, previousSpec, oldSupervisor, oldAutoscaler);
+
+    oldAutoscaler.stop();
+    EasyMock.expectLastCall().andThrow(stopFailure);
+    EasyMock.replay(oldSupervisor, oldAutoscaler, replacementSupervisor);
+
+    Assert.assertSame(
+        stopFailure,
+        Assert.assertThrows(RuntimeException.class, () -> manager.suspendOrResumeSupervisor("id", true))
+    );
+    Assert.assertSame(previousSpec, metadata.latest.get("id"));
+    Assert.assertSame(previousSpec, manager.getSupervisorSpec("id").get());
+    assertTransitionAlert(
+        "Failed to stop previous runtime for supervisor [id], runtime state is unverified and the existing "
+        + "supervisor entry remains registered",
+        "stopping the previous runtime"
+    );
+    EasyMock.verify(oldSupervisor, oldAutoscaler, replacementSupervisor);
+  }
+
+  @Test
+  public void testSupervisorStopFailureKeepsEntryAndConfirmedCompensationFailureIsNotSuppressed()
+  {
+    final RuntimeException stopFailure = new RuntimeException("supervisor stop failed");
+    final RuntimeException compensationFailure = new RuntimeException("commit then throw");
+    final TestMetadataSupervisorManager metadata = new TestMetadataSupervisorManager();
+    final Supervisor oldSupervisor = EasyMock.createMock(Supervisor.class);
+    final Supervisor replacementSupervisor = EasyMock.createMock(Supervisor.class);
+    final TransitionSupervisorSpec previousSpec = new TransitionSupervisorSpec("id", false, "running", oldSupervisor);
+    previousSpec.suspendedSpec = new TransitionSupervisorSpec("id", true, "suspended", replacementSupervisor);
+    startManager(metadata, previousSpec, oldSupervisor, null);
+    metadata.addInsertSuccess();
+    metadata.addInsertFailure(true, compensationFailure);
+
+    oldSupervisor.stop(true);
+    EasyMock.expectLastCall().andThrow(stopFailure);
+    EasyMock.replay(oldSupervisor, replacementSupervisor);
+
+    Assert.assertSame(
+        stopFailure,
+        Assert.assertThrows(RuntimeException.class, () -> manager.suspendOrResumeSupervisor("id", true))
+    );
+    Assert.assertSame(previousSpec, metadata.latest.get("id"));
+    Assert.assertSame(previousSpec, manager.getSupervisorSpec("id").get());
+    Assert.assertEquals(0, stopFailure.getSuppressed().length);
+    assertTransitionAlert(
+        "Failed to stop previous runtime for supervisor [id], runtime state is unverified and the existing "
+        + "supervisor entry remains registered",
+        "stopping the previous runtime"
+    );
+    EasyMock.verify(oldSupervisor, replacementSupervisor);
+  }
+
+  @Test
+  public void testStopFailureDoesNotCompensateOverConcurrentTombstone()
+  {
+    final RuntimeException stopFailure = new RuntimeException("supervisor stop failed");
+    final TestMetadataSupervisorManager metadata = new TestMetadataSupervisorManager();
+    final Supervisor oldSupervisor = EasyMock.createMock(Supervisor.class);
+    final Supervisor replacementSupervisor = EasyMock.createMock(Supervisor.class);
+    final TransitionSupervisorSpec previousSpec = new TransitionSupervisorSpec("id", false, "running", oldSupervisor);
+    previousSpec.suspendedSpec = new TransitionSupervisorSpec("id", true, "suspended", replacementSupervisor);
+    startManager(metadata, previousSpec, oldSupervisor, null);
+
+    oldSupervisor.stop(true);
+    EasyMock.expectLastCall().andAnswer(() -> {
+      metadata.latest.put("id", new NoopSupervisorSpec("id", previousSpec.getDataSources()));
+      throw stopFailure;
+    });
+    EasyMock.replay(oldSupervisor, replacementSupervisor);
+
+    Assert.assertSame(
+        stopFailure,
+        Assert.assertThrows(RuntimeException.class, () -> manager.suspendOrResumeSupervisor("id", true))
+    );
+    Assert.assertTrue(metadata.latest.get("id") instanceof NoopSupervisorSpec);
+    Assert.assertSame(previousSpec, manager.getSupervisorSpec("id").get());
+    Assert.assertEquals(1, metadata.inserts.size());
+    assertTransitionAlert(
+        "Failed to stop previous runtime for supervisor [id], runtime state is unverified and the existing "
+        + "supervisor entry remains registered",
+        "stopping the previous runtime"
+    );
+    EasyMock.verify(oldSupervisor, replacementSupervisor);
+  }
+
+  @Test
+  public void testReplacementStartFailureCleansUpAndRestoresPreviousRuntimeAndAutoscaler()
+  {
+    final RuntimeException startFailure = new RuntimeException("replacement start failed");
+    final TestMetadataSupervisorManager metadata = new TestMetadataSupervisorManager();
+    final Supervisor oldSupervisor = EasyMock.createMock(Supervisor.class);
+    final Supervisor restoredSupervisor = EasyMock.createMock(Supervisor.class);
+    final Supervisor replacementSupervisor = EasyMock.createMock(Supervisor.class);
+    final SupervisorTaskAutoScaler oldAutoscaler = EasyMock.createMock(SupervisorTaskAutoScaler.class);
+    final SupervisorTaskAutoScaler restoredAutoscaler = EasyMock.createMock(SupervisorTaskAutoScaler.class);
+    final SupervisorTaskAutoScaler replacementAutoscaler = EasyMock.createMock(SupervisorTaskAutoScaler.class);
+    final TransitionSupervisorSpec previousSpec = new TransitionSupervisorSpec(
+        "id",
+        false,
+        "running",
+        oldSupervisor,
+        restoredSupervisor
+    );
+    final TransitionSupervisorSpec nextSpec = new TransitionSupervisorSpec(
+        "id",
+        true,
+        "suspended",
+        replacementSupervisor
+    );
+    previousSpec.suspendedSpec = nextSpec;
+    startManager(metadata, previousSpec, oldSupervisor, oldAutoscaler);
+
+    oldAutoscaler.stop();
+    oldSupervisor.stop(true);
+    EasyMock.expect(replacementSupervisor.createAutoscaler(nextSpec)).andReturn(replacementAutoscaler);
+    replacementSupervisor.start();
+    EasyMock.expectLastCall().andAnswer(() -> {
+      Assert.assertSame(previousSpec, manager.getSupervisorSpec("id").get());
+      throw startFailure;
+    });
+    replacementAutoscaler.stop();
+    replacementSupervisor.stop(true);
+    EasyMock.expect(restoredSupervisor.createAutoscaler(previousSpec)).andReturn(restoredAutoscaler);
+    restoredSupervisor.start();
+    restoredAutoscaler.start();
+    EasyMock.replay(
+        oldSupervisor,
+        restoredSupervisor,
+        replacementSupervisor,
+        oldAutoscaler,
+        restoredAutoscaler,
+        replacementAutoscaler
+    );
+
+    Assert.assertSame(
+        startFailure,
+        Assert.assertThrows(RuntimeException.class, () -> manager.suspendOrResumeSupervisor("id", true))
+    );
+    Assert.assertSame(previousSpec, metadata.latest.get("id"));
+    Assert.assertSame(previousSpec, manager.getSupervisorSpec("id").get());
+    EasyMock.verify(
+        oldSupervisor,
+        restoredSupervisor,
+        replacementSupervisor,
+        oldAutoscaler,
+        restoredAutoscaler,
+        replacementAutoscaler
+    );
+  }
+
+  @Test
+  public void testReplacementCreateSupervisorFailureRestoresPreviousRuntime()
+  {
+    final RuntimeException createFailure = new RuntimeException("create failed");
+    final TestMetadataSupervisorManager metadata = new TestMetadataSupervisorManager();
+    final Supervisor oldSupervisor = EasyMock.createMock(Supervisor.class);
+    final Supervisor restoredSupervisor = EasyMock.createMock(Supervisor.class);
+    final TransitionSupervisorSpec previousSpec = new TransitionSupervisorSpec(
+        "id",
+        false,
+        "running",
+        oldSupervisor,
+        restoredSupervisor
+    );
+    previousSpec.suspendedSpec = new TransitionSupervisorSpec("id", true, "suspended", oldSupervisor)
+    {
+      @Override
+      public Supervisor createSupervisor()
+      {
+        throw createFailure;
+      }
+    };
+    startManager(metadata, previousSpec, oldSupervisor, null);
+
+    oldSupervisor.stop(true);
+    EasyMock.expect(restoredSupervisor.createAutoscaler(previousSpec)).andReturn(null);
+    restoredSupervisor.start();
+    EasyMock.replay(oldSupervisor, restoredSupervisor);
+
+    Assert.assertSame(
+        createFailure,
+        Assert.assertThrows(RuntimeException.class, () -> manager.suspendOrResumeSupervisor("id", true))
+    );
+    Assert.assertSame(previousSpec, metadata.latest.get("id"));
+    Assert.assertSame(previousSpec, manager.getSupervisorSpec("id").get());
+    EasyMock.verify(oldSupervisor, restoredSupervisor);
+  }
+
+  @Test
+  public void testReplacementCreateAutoscalerFailureCleansUpAndRestoresPreviousRuntime()
+  {
+    final RuntimeException autoscalerFailure = new RuntimeException("create autoscaler failed");
+    final TestMetadataSupervisorManager metadata = new TestMetadataSupervisorManager();
+    final Supervisor oldSupervisor = EasyMock.createMock(Supervisor.class);
+    final Supervisor restoredSupervisor = EasyMock.createMock(Supervisor.class);
+    final Supervisor replacementSupervisor = EasyMock.createMock(Supervisor.class);
+    final TransitionSupervisorSpec previousSpec = new TransitionSupervisorSpec(
+        "id",
+        false,
+        "running",
+        oldSupervisor,
+        restoredSupervisor
+    );
+    final TransitionSupervisorSpec nextSpec = new TransitionSupervisorSpec(
+        "id",
+        true,
+        "suspended",
+        replacementSupervisor
+    );
+    previousSpec.suspendedSpec = nextSpec;
+    startManager(metadata, previousSpec, oldSupervisor, null);
+
+    oldSupervisor.stop(true);
+    EasyMock.expect(replacementSupervisor.createAutoscaler(nextSpec)).andThrow(autoscalerFailure);
+    replacementSupervisor.stop(true);
+    EasyMock.expect(restoredSupervisor.createAutoscaler(previousSpec)).andReturn(null);
+    restoredSupervisor.start();
+    EasyMock.replay(oldSupervisor, restoredSupervisor, replacementSupervisor);
+
+    Assert.assertSame(
+        autoscalerFailure,
+        Assert.assertThrows(RuntimeException.class, () -> manager.suspendOrResumeSupervisor("id", true))
+    );
+    Assert.assertSame(previousSpec, metadata.latest.get("id"));
+    Assert.assertSame(previousSpec, manager.getSupervisorSpec("id").get());
+    EasyMock.verify(oldSupervisor, restoredSupervisor, replacementSupervisor);
+  }
+
+  @Test
+  public void testUnconfirmedMetadataRollbackDoesNotPreventRuntimeRestoration()
+  {
+    final RuntimeException replacementFailure = new RuntimeException("replacement failed");
+    final RuntimeException rollbackFailure = new RuntimeException("rollback failed");
+    final TestMetadataSupervisorManager metadata = new TestMetadataSupervisorManager();
+    final Supervisor oldSupervisor = EasyMock.createMock(Supervisor.class);
+    final Supervisor restoredSupervisor = EasyMock.createMock(Supervisor.class);
+    final Supervisor replacementSupervisor = EasyMock.createMock(Supervisor.class);
+    final TransitionSupervisorSpec previousSpec = new TransitionSupervisorSpec(
+        "id",
+        false,
+        "running",
+        oldSupervisor,
+        restoredSupervisor
+    );
+    final TransitionSupervisorSpec nextSpec = new TransitionSupervisorSpec(
+        "id",
+        true,
+        "suspended",
+        replacementSupervisor
+    );
+    previousSpec.suspendedSpec = nextSpec;
+    startManager(metadata, previousSpec, oldSupervisor, null);
+    metadata.addInsertSuccess();
+    metadata.addInsertFailure(false, rollbackFailure);
+
+    oldSupervisor.stop(true);
+    EasyMock.expect(replacementSupervisor.createAutoscaler(nextSpec)).andThrow(replacementFailure);
+    replacementSupervisor.stop(true);
+    EasyMock.expect(restoredSupervisor.createAutoscaler(previousSpec)).andReturn(null);
+    restoredSupervisor.start();
+    EasyMock.replay(oldSupervisor, restoredSupervisor, replacementSupervisor);
+
+    final RuntimeException thrown = Assert.assertThrows(
+        RuntimeException.class,
+        () -> manager.suspendOrResumeSupervisor("id", true)
+    );
+    Assert.assertSame(replacementFailure, thrown);
+    Assert.assertTrue(ImmutableList.copyOf(thrown.getSuppressed()).contains(rollbackFailure));
+    Assert.assertSame(nextSpec, metadata.latest.get("id"));
+    Assert.assertSame(previousSpec, manager.getSupervisorSpec("id").get());
+
+    Assert.assertTrue(manager.suspendOrResumeSupervisor("id", false));
+    Assert.assertSame(previousSpec, metadata.latest.get("id"));
+    Assert.assertFalse(manager.suspendOrResumeSupervisor("id", false));
+    EasyMock.verify(oldSupervisor, restoredSupervisor, replacementSupervisor);
+  }
+
+  @Test
+  public void testReplacementErrorCleansUpRollsBackAndRestoresPreviousRuntime()
+  {
+    final NoClassDefFoundError createError = new NoClassDefFoundError("missing extension class");
+    final TestMetadataSupervisorManager metadata = new TestMetadataSupervisorManager();
+    final Supervisor oldSupervisor = EasyMock.createMock(Supervisor.class);
+    final Supervisor restoredSupervisor = EasyMock.createMock(Supervisor.class);
+    final TransitionSupervisorSpec previousSpec = new TransitionSupervisorSpec(
+        "id",
+        false,
+        "running",
+        oldSupervisor,
+        restoredSupervisor
+    );
+    previousSpec.suspendedSpec = new TransitionSupervisorSpec("id", true, "suspended", oldSupervisor)
+    {
+      @Override
+      public Supervisor createSupervisor()
+      {
+        throw createError;
+      }
+    };
+    startManager(metadata, previousSpec, oldSupervisor, null);
+
+    oldSupervisor.stop(true);
+    EasyMock.expect(restoredSupervisor.createAutoscaler(previousSpec)).andReturn(null);
+    restoredSupervisor.start();
+    EasyMock.replay(oldSupervisor, restoredSupervisor);
+
+    Assert.assertSame(
+        createError,
+        Assert.assertThrows(NoClassDefFoundError.class, () -> manager.suspendOrResumeSupervisor("id", true))
+    );
+    Assert.assertSame(previousSpec, metadata.latest.get("id"));
+    Assert.assertSame(previousSpec, manager.getSupervisorSpec("id").get());
+    EasyMock.verify(oldSupervisor, restoredSupervisor);
+  }
+
+  @Test
+  public void testSuccessfulStartIsAcceptanceBoundaryWithoutHealthCheck()
+  {
+    final TestMetadataSupervisorManager metadata = new TestMetadataSupervisorManager();
+    final Supervisor oldSupervisor = EasyMock.createMock(Supervisor.class);
+    final Supervisor replacementSupervisor = EasyMock.createMock(Supervisor.class);
+    final TransitionSupervisorSpec previousSpec = new TransitionSupervisorSpec("id", false, "running", oldSupervisor);
+    final TransitionSupervisorSpec nextSpec = new TransitionSupervisorSpec("id", true, "suspended", replacementSupervisor);
+    previousSpec.suspendedSpec = nextSpec;
+    startManager(metadata, previousSpec, oldSupervisor, null);
+
+    oldSupervisor.stop(true);
+    EasyMock.expect(replacementSupervisor.createAutoscaler(nextSpec)).andReturn(null);
+    replacementSupervisor.start();
+    EasyMock.replay(oldSupervisor, replacementSupervisor);
+
+    Assert.assertTrue(manager.suspendOrResumeSupervisor("id", true));
+    Assert.assertSame(nextSpec, metadata.latest.get("id"));
+    Assert.assertSame(nextSpec, manager.getSupervisorSpec("id").get());
+    EasyMock.verify(oldSupervisor, replacementSupervisor);
+  }
+
+  @Test
+  public void testReplacementAutoscalerStartAndCleanupFailuresRemainSecondaryToRecreationFailure()
+  {
+    final RuntimeException startFailure = new RuntimeException("autoscaler start failed");
+    final RuntimeException cleanupFailure = new RuntimeException("cleanup failed");
+    final RuntimeException restorationFailure = new RuntimeException("restoration failed");
+    final TestMetadataSupervisorManager metadata = new TestMetadataSupervisorManager();
+    final Supervisor oldSupervisor = EasyMock.createMock(Supervisor.class);
+    final Supervisor restoredSupervisor = EasyMock.createMock(Supervisor.class);
+    final Supervisor replacementSupervisor = EasyMock.createMock(Supervisor.class);
+    final SupervisorTaskAutoScaler replacementAutoscaler = EasyMock.createMock(SupervisorTaskAutoScaler.class);
+    final TransitionSupervisorSpec previousSpec = new TransitionSupervisorSpec(
+        "id",
+        false,
+        "running",
+        oldSupervisor,
+        restoredSupervisor
+    );
+    final TransitionSupervisorSpec nextSpec = new TransitionSupervisorSpec(
+        "id",
+        true,
+        "suspended",
+        replacementSupervisor
+    );
+    previousSpec.suspendedSpec = nextSpec;
+    startManager(metadata, previousSpec, oldSupervisor, null);
+
+    oldSupervisor.stop(true);
+    EasyMock.expect(replacementSupervisor.createAutoscaler(nextSpec)).andReturn(replacementAutoscaler);
+    replacementSupervisor.start();
+    replacementAutoscaler.start();
+    EasyMock.expectLastCall().andThrow(startFailure);
+    replacementAutoscaler.stop();
+    EasyMock.expectLastCall().andThrow(cleanupFailure);
+    replacementSupervisor.stop(true);
+    EasyMock.expect(restoredSupervisor.createAutoscaler(previousSpec)).andThrow(restorationFailure);
+    restoredSupervisor.stop(true);
+    EasyMock.replay(oldSupervisor, restoredSupervisor, replacementSupervisor, replacementAutoscaler);
+
+    final RuntimeException thrown = Assert.assertThrows(
+        RuntimeException.class,
+        () -> manager.suspendOrResumeSupervisor("id", true)
+    );
+    Assert.assertSame(startFailure, thrown);
+    Assert.assertEquals(2, thrown.getSuppressed().length);
+    Assert.assertSame(cleanupFailure, thrown.getSuppressed()[0]);
+    Assert.assertSame(restorationFailure, thrown.getSuppressed()[1]);
+    Assert.assertSame(previousSpec, metadata.latest.get("id"));
+    Assert.assertFalse(manager.getSupervisorSpec("id").isPresent());
+    assertTransitionAlert(
+        "Failed to restore previous runtime for supervisor [id], re-submit the previous supervisor spec with "
+        + "POST /supervisor to recreate the runtime",
+        "restoring the previous runtime"
+    );
+    EasyMock.verify(oldSupervisor, restoredSupervisor, replacementSupervisor, replacementAutoscaler);
+  }
+
+  @Test
   public void testGetActiveSupervisorIdForDatasourceWithAppendLock()
   {
     EasyMock.expect(metadataSupervisorManager.getLatest()).andReturn(Collections.emptyMap());
@@ -863,6 +1825,244 @@ public class SupervisorManagerTest extends EasyMockSupport
     public List<String> getDataSources()
     {
       return new ArrayList<>();
+    }
+  }
+
+  private void assertTransitionAlert(String description, String stage)
+  {
+    final List<AlertEvent> alerts = emitter.getAlerts();
+    Assert.assertEquals(1, alerts.size());
+    final AlertEvent alert = alerts.get(0);
+    Assert.assertEquals(description, alert.getDescription());
+    Assert.assertEquals("id", alert.getDataMap().get("supervisorId"));
+    Assert.assertEquals(stage, alert.getDataMap().get("stage"));
+    Assert.assertFalse(alert.getDataMap().containsKey("runtimeSuspended"));
+    Assert.assertFalse(alert.getDataMap().containsKey("metadataSuspended"));
+  }
+
+  private void startManager(
+      TestMetadataSupervisorManager metadata,
+      TransitionSupervisorSpec spec,
+      Supervisor initialSupervisor,
+      SupervisorTaskAutoScaler initialAutoscaler
+  )
+  {
+    metadata.latest.put(spec.getId(), spec);
+    EasyMock.expect(initialSupervisor.createAutoscaler(spec)).andReturn(initialAutoscaler);
+    initialSupervisor.start();
+    if (initialAutoscaler != null) {
+      initialAutoscaler.start();
+      EasyMock.replay(initialSupervisor, initialAutoscaler);
+    } else {
+      EasyMock.replay(initialSupervisor);
+    }
+
+    manager = new SupervisorManager(MAPPER, metadata);
+    manager.start();
+
+    if (initialAutoscaler != null) {
+      EasyMock.verify(initialSupervisor, initialAutoscaler);
+      EasyMock.reset(initialSupervisor, initialAutoscaler);
+    } else {
+      EasyMock.verify(initialSupervisor);
+      EasyMock.reset(initialSupervisor);
+    }
+    metadata.inserts.clear();
+    metadata.reads = 0;
+  }
+
+  private static class TransitionSupervisorSpec implements SupervisorSpec
+  {
+    private final String id;
+    private final boolean suspended;
+    private final String config;
+    private final Supervisor[] supervisorInstances;
+    private int nextSupervisorInstance;
+    private TransitionSupervisorSpec suspendedSpec;
+    private TransitionSupervisorSpec runningSpec;
+    private RuntimeException serializationFailure;
+
+    TransitionSupervisorSpec(String id, boolean suspended, String config, Supervisor... supervisorInstances)
+    {
+      this.id = id;
+      this.suspended = suspended;
+      this.config = config;
+      this.supervisorInstances = supervisorInstances;
+    }
+
+    @Override
+    public SupervisorSpec createSuspendedSpec()
+    {
+      return suspendedSpec;
+    }
+
+    @Override
+    public SupervisorSpec createRunningSpec()
+    {
+      return runningSpec;
+    }
+
+    @Override
+    @JsonProperty
+    public String getId()
+    {
+      return id;
+    }
+
+    @Override
+    public Supervisor createSupervisor()
+    {
+      return supervisorInstances[Math.min(nextSupervisorInstance++, supervisorInstances.length - 1)];
+    }
+
+    @Override
+    @JsonProperty
+    public boolean isSuspended()
+    {
+      return suspended;
+    }
+
+    @JsonProperty
+    public String getConfig()
+    {
+      if (serializationFailure != null) {
+        throw serializationFailure;
+      }
+      return config;
+    }
+
+    @Override
+    public String getType()
+    {
+      return "transition-test";
+    }
+
+    @Override
+    public String getSource()
+    {
+      return null;
+    }
+
+    @Override
+    public List<String> getDataSources()
+    {
+      return ImmutableList.of("datasource");
+    }
+  }
+
+  private static class TestMetadataSupervisorManager implements MetadataSupervisorManager
+  {
+    private final Map<String, SupervisorSpec> latest = new HashMap<>();
+    private final List<SupervisorSpec> inserts = new ArrayList<>();
+    private final Deque<InsertBehavior> insertBehaviors = new ArrayDeque<>();
+    private final Deque<RuntimeException> readFailures = new ArrayDeque<>();
+    private final List<String> events;
+    private int reads;
+
+    TestMetadataSupervisorManager()
+    {
+      this(new ArrayList<>());
+    }
+
+    TestMetadataSupervisorManager(List<String> events)
+    {
+      this.events = events;
+    }
+
+    void addInsertSuccess()
+    {
+      insertBehaviors.add(new InsertBehavior(true, null));
+    }
+
+    void addInsertFailure(boolean commit, RuntimeException exception)
+    {
+      insertBehaviors.add(new InsertBehavior(commit, exception));
+    }
+
+    void setLatest(String id, SupervisorSpec spec)
+    {
+      latest.put(id, spec);
+    }
+
+    @Override
+    public void start()
+    {
+      // No-op.
+    }
+
+    @Override
+    public void insert(String id, SupervisorSpec spec)
+    {
+      inserts.add(spec);
+      events.add("insert:" + (spec.isSuspended() ? "suspended" : "running"));
+      final InsertBehavior behavior = insertBehaviors.isEmpty()
+                                      ? new InsertBehavior(true, null)
+                                      : insertBehaviors.remove();
+      if (behavior.commit) {
+        latest.put(id, spec);
+      }
+      if (behavior.exception != null) {
+        throw behavior.exception;
+      }
+    }
+
+    @Override
+    public Map<String, List<VersionedSupervisorSpec>> getAll()
+    {
+      return Collections.emptyMap();
+    }
+
+    @Override
+    public List<VersionedSupervisorSpec> getAllForId(String id, Integer limit)
+    {
+      reads++;
+      if (!readFailures.isEmpty()) {
+        throw readFailures.remove();
+      }
+      final SupervisorSpec spec = latest.get(id);
+      return spec == null
+             ? Collections.emptyList()
+             : Collections.singletonList(new VersionedSupervisorSpec(spec, "version"));
+    }
+
+    @Override
+    public Map<String, SupervisorSpec> getLatest()
+    {
+      reads++;
+      if (!readFailures.isEmpty()) {
+        throw readFailures.remove();
+      }
+      return new HashMap<>(latest);
+    }
+
+    @Override
+    public Map<String, SupervisorSpec> getLatestActiveOnly()
+    {
+      return Collections.emptyMap();
+    }
+
+    @Override
+    public Map<String, SupervisorSpec> getLatestTerminatedOnly()
+    {
+      return Collections.emptyMap();
+    }
+
+    @Override
+    public int removeTerminatedSupervisorsOlderThan(long timestamp)
+    {
+      return 0;
+    }
+  }
+
+  private static class InsertBehavior
+  {
+    private final boolean commit;
+    private final RuntimeException exception;
+
+    InsertBehavior(boolean commit, RuntimeException exception)
+    {
+      this.commit = commit;
+      this.exception = exception;
     }
   }
 }
