@@ -29,7 +29,7 @@
 
     <groupId>org.apache.druid</groupId>
     <artifactId>druid</artifactId>
-    <version>37.0.0-deepbi3</version>
+    <version>37.0.0-deepbi4</version>
     <packaging>pom</packaging>
 
     <name>Druid</name>

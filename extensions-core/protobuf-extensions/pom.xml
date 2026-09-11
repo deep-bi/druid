@@ -30,7 +30,7 @@
   <parent>
     <artifactId>druid</artifactId>
     <groupId>org.apache.druid</groupId>
-    <version>37.0.0-deepbi3</version>
+    <version>37.0.0-deepbi4</version>
     <relativePath>../../pom.xml</relativePath>
   </parent>
 
