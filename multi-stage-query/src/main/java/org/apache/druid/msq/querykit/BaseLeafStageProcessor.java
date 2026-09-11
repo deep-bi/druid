@@ -19,6 +19,8 @@
 
 package org.apache.druid.msq.querykit;
 
+import com.google.common.base.Supplier;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterators;
 import com.google.common.util.concurrent.ListenableFuture;
@@ -43,15 +45,17 @@ import org.apache.druid.msq.exec.std.ProcessorsAndChannels;
 import org.apache.druid.msq.exec.std.StandardPartitionReader;
 import org.apache.druid.msq.exec.std.StandardStageRunner;
 import org.apache.druid.msq.input.InputSlice;
+import org.apache.druid.msq.input.InputSpec;
 import org.apache.druid.msq.input.PhysicalInputSlice;
 import org.apache.druid.msq.input.external.ExternalInputSlice;
 import org.apache.druid.msq.input.stage.StageInputSlice;
 import org.apache.druid.msq.input.table.SegmentsInputSlice;
 import org.apache.druid.msq.kernel.StageDefinition;
-import org.apache.druid.msq.util.MultiStageQueryContext;
 import org.apache.druid.query.Query;
+import org.apache.druid.query.filter.SegmentPruner;
 import org.apache.druid.query.planning.ExecutionVertex;
 import org.apache.druid.segment.SegmentMapFunction;
+import org.apache.druid.segment.loading.AcquireMode;
 import org.apache.druid.utils.CollectionUtils;
 
 import javax.annotation.Nullable;
@@ -70,16 +74,19 @@ import java.util.function.Function;
 public abstract class BaseLeafStageProcessor extends BasicStageProcessor
 {
   private final Query<?> query;
+  private final Supplier<ExecutionVertex> executionVertexSupplier;
 
   protected BaseLeafStageProcessor(Query<?> query)
   {
     this.query = query;
+    this.executionVertexSupplier = Suppliers.memoize(() -> ExecutionVertex.of(query));
   }
 
   @Override
   public ListenableFuture<Long> execute(ExecutionContext context)
   {
     final StandardStageRunner<Object, Long> stageRunner = new StandardStageRunner<>(context);
+    configureStageRunner(stageRunner, context);
     final List<InputSlice> inputSlices = context.workOrder().getInputs();
     final StageDefinition stageDefinition = context.workOrder().getStageDefinition();
     final FrameContext frameContext = context.frameContext();
@@ -93,13 +100,12 @@ public abstract class BaseLeafStageProcessor extends BasicStageProcessor
     final ReadableInputQueue baseInputQueue = makeBaseInputQueue(context.workOrder().getInputs(), context);
     final int totalProcessors = baseInputQueue.remaining();
 
-    if (totalProcessors == 0) {
-      return stageRunner.run(new ProcessorsAndChannels<>(ProcessorManagers.none(), OutputChannels.none()));
-    }
-
     final int outstandingProcessors;
 
-    if (hasParquet(inputSlices)) {
+    if (totalProcessors == 0) {
+      // No processors to run, but still acquire 1 slice so processingBouncer() works in stageRunner.run().
+      outstandingProcessors = 1;
+    } else if (hasParquet(inputSlices)) {
       // This is a workaround for memory use in ParquetFileReader, which loads up an entire row group into memory as
       // part of its normal operation. Row groups can be quite large (like, 1GB large) so this is a major source of
       // unaccounted-for memory use during ingestion and query of external data. We are trying to prevent memory
@@ -107,6 +113,14 @@ public abstract class BaseLeafStageProcessor extends BasicStageProcessor
       outstandingProcessors = 1;
     } else {
       outstandingProcessors = Math.min(totalProcessors, context.threadCount());
+    }
+
+    if (usesProcessingBuffers()) {
+      frameContext.acquireProcessingBuffers(outstandingProcessors);
+    }
+
+    if (totalProcessors == 0) {
+      return stageRunner.run(new ProcessorsAndChannels<>(ProcessorManagers.none(), OutputChannels.none()));
     }
 
     final Queue<FrameWriterFactory> frameWriterFactoryQueue = new ArrayDeque<>(outstandingProcessors);
@@ -153,7 +167,7 @@ public abstract class BaseLeafStageProcessor extends BasicStageProcessor
     final ProcessorManager processorManager;
 
     if (segmentMapFnProcessor == null) {
-      final SegmentMapFunction segmentMapFn = ExecutionVertex.of(query).createSegmentMapFunction(frameContext.policyEnforcer());
+      final SegmentMapFunction segmentMapFn = executionVertexSupplier.get().createSegmentMapFunction(frameContext.policyEnforcer());
       processorManager = processorManagerFn.apply(ImmutableList.of(segmentMapFn));
     } else {
       processorManager = new ChainedProcessorManager<>(
@@ -169,6 +183,13 @@ public abstract class BaseLeafStageProcessor extends BasicStageProcessor
             OutputChannels.wrap(outputChannels)
         )
     );
+  }
+
+  @Nullable
+  @Override
+  public SegmentPruner getPruner(InputSpec inputSpec, int inputNumber)
+  {
+    return executionVertexSupplier.get().getSegmentPruner();
   }
 
   private ProcessorManager<Object, Long> createBaseLeafProcessorManagerWithHandoff(
@@ -215,6 +236,17 @@ public abstract class BaseLeafStageProcessor extends BasicStageProcessor
     );
   }
 
+  /**
+   * Hook for subclasses to configure the stage runner before execution.
+   */
+  protected void configureStageRunner(
+      final StandardStageRunner<Object, Long> stageRunner,
+      final ExecutionContext context
+  )
+  {
+    // Default: no-op
+  }
+
   protected abstract FrameProcessor<Object> makeProcessor(
       ReadableInput baseInput,
       SegmentMapFunction segmentMapFn,
@@ -230,6 +262,23 @@ public abstract class BaseLeafStageProcessor extends BasicStageProcessor
   protected List<PhysicalInputSlice> filterBaseInput(final List<PhysicalInputSlice> slices)
   {
     return slices;
+  }
+
+
+  /**
+   * Create the {@link ReadableInputQueue} for this stage's base inputs. Override to change how the queue acquires
+   * segments: the default acquires them fully up front ({@link AcquireMode#FULL}), which is safe for any processor.
+   * Leaf processors that read segments through the async cursor API
+   * ({@link org.apache.druid.segment.CursorFactory#makeCursorHolderAsync}) can override to {@link AcquireMode#PARTIAL}
+   * so only the columns a query actually touches are downloaded.
+   */
+  protected ReadableInputQueue makeReadableInputQueue(
+      final StandardPartitionReader partitionReader,
+      final List<PhysicalInputSlice> slices,
+      final int loadahead
+  )
+  {
+    return new ReadableInputQueue(partitionReader, slices, loadahead, AcquireMode.FULL);
   }
 
   /**
@@ -262,13 +311,10 @@ public abstract class BaseLeafStageProcessor extends BasicStageProcessor
     }
 
     final List<PhysicalInputSlice> filteredSlices = filterBaseInput(physicalInputSlices);
-    final Integer segmentLoadAheadCount =
-        MultiStageQueryContext.getSegmentLoadAheadCount(context.workOrder().getWorkerContext());
-    return new ReadableInputQueue(
-        stageDef.getId().getQueryId(),
+    return makeReadableInputQueue(
         new StandardPartitionReader(context),
         filteredSlices,
-        segmentLoadAheadCount != null ? segmentLoadAheadCount : context.threadCount()
+        context.segmentLoadAheadCount()
     );
   }
 
@@ -306,7 +352,7 @@ public abstract class BaseLeafStageProcessor extends BasicStageProcessor
               )
           );
           final FrameReader frameReader = partitionReader.frameReader(slice.getStageNumber());
-          broadcastInputs.put(inputNumber, ReadableInput.channel(channel, frameReader, null));
+          broadcastInputs.put(inputNumber, ReadableInput.channel(channel, frameReader, slice.getStageNumber(), ReadableInput.NO_PARTITION));
         }
       }
 
@@ -337,7 +383,7 @@ public abstract class BaseLeafStageProcessor extends BasicStageProcessor
     final Int2ObjectMap<ReadableInput> broadcastInputs = readBroadcastInputsFromEarlierStages(context);
 
     if (broadcastInputs.isEmpty()) {
-      if (ExecutionVertex.of(query).isSegmentMapFunctionExpensive()) {
+      if (executionVertexSupplier.get().isSegmentMapFunctionExpensive()) {
         // Joins may require significant computation to compute the segmentMapFn. Offload it to a processor.
         return new SimpleSegmentMapFnProcessor(query, context.frameContext().policyEnforcer());
       } else {

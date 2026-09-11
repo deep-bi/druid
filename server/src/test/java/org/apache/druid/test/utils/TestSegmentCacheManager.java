@@ -27,11 +27,14 @@ import org.apache.druid.segment.ReferenceCountedSegmentProvider;
 import org.apache.druid.segment.Segment;
 import org.apache.druid.segment.SegmentLazyLoadFailCallback;
 import org.apache.druid.segment.TestSegmentUtils;
+import org.apache.druid.segment.loading.AcquireMode;
 import org.apache.druid.segment.loading.AcquireSegmentAction;
 import org.apache.druid.segment.loading.AcquireSegmentResult;
 import org.apache.druid.segment.loading.NoopSegmentCacheManager;
+import org.apache.druid.segment.loading.SegmentLoadingException;
 import org.apache.druid.segment.loading.TombstoneSegmentizerFactory;
 import org.apache.druid.timeline.DataSegment;
+import org.apache.druid.timeline.SegmentId;
 import org.joda.time.Interval;
 
 import java.util.List;
@@ -50,12 +53,19 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class TestSegmentCacheManager extends NoopSegmentCacheManager
 {
   private final List<DataSegment> cachedSegments;
-  private final Map<DataSegment, ReferenceCountedSegmentProvider> referenceProviders;
+  private final Map<SegmentId, ReferenceCountedSegmentProvider> referenceProviders;
+  private final Map<SegmentId, DataSegment> segmentLookup;
 
   private final List<DataSegment> observedBootstrapSegments;
   private final List<DataSegment> observedSegments;
-  private final List<DataSegment> observedSegmentsRemovedFromCache;
+  private final Set<SegmentId> observedSegmentsRemovedFromCache;
   private final AtomicInteger observedShutdownBootstrapCount;
+
+  /**
+   * Loads still allowed to succeed before {@link #load} starts failing, see {@link #failLoadsAfter}. Unlimited
+   * unless a test says otherwise.
+   */
+  private final AtomicInteger remainingSuccessfulLoads = new AtomicInteger(Integer.MAX_VALUE);
 
   public TestSegmentCacheManager()
   {
@@ -66,12 +76,13 @@ public class TestSegmentCacheManager extends NoopSegmentCacheManager
   {
     this.cachedSegments = ImmutableList.copyOf(segmentsToCache);
     this.referenceProviders = new ConcurrentHashMap<>();
+    this.segmentLookup = new ConcurrentHashMap<>();
 
     // While inneficient, these CopyOnWriteArrayList objects greatly simplify meeting the thread
     // safety mandate from SegmentCacheManager. For testing, this should be ok.
     this.observedBootstrapSegments = new CopyOnWriteArrayList<>();
     this.observedSegments = new CopyOnWriteArrayList<>();
-    this.observedSegmentsRemovedFromCache = new CopyOnWriteArrayList<>();
+    this.observedSegmentsRemovedFromCache = ConcurrentHashMap.newKeySet();
 
     this.observedShutdownBootstrapCount = new AtomicInteger(0);
   }
@@ -82,7 +93,8 @@ public class TestSegmentCacheManager extends NoopSegmentCacheManager
    */
   public void registerSegment(final DataSegment dataSegment, final Segment segment)
   {
-    referenceProviders.put(dataSegment, ReferenceCountedSegmentProvider.of(segment));
+    segmentLookup.put(dataSegment.getId(), dataSegment);
+    referenceProviders.put(dataSegment.getId(), ReferenceCountedSegmentProvider.of(segment));
   }
 
   @Override
@@ -98,23 +110,42 @@ public class TestSegmentCacheManager extends NoopSegmentCacheManager
   }
 
   @Override
-  public void bootstrap(DataSegment segment, SegmentLazyLoadFailCallback loadFailed)
+  public DataSegment bootstrap(DataSegment segment, SegmentLazyLoadFailCallback loadFailed)
   {
     observedBootstrapSegments.add(segment);
+    getSegmentInternal(segment);
+    return segment;
+  }
+
+  /**
+   * Makes {@link #load} succeed {@code numSuccessfulLoads} more times and fail every load after that. Lets a test
+   * establish a serving replica and then fail a reload of it, which is what distinguishes failure cleanup that is
+   * safe from cleanup that would tear down a live replica.
+   */
+  public void failLoadsAfter(int numSuccessfulLoads)
+  {
+    remainingSuccessfulLoads.set(numSuccessfulLoads);
   }
 
   @Override
-  public void load(final DataSegment segment)
+  public DataSegment load(final DataSegment segment) throws SegmentLoadingException
   {
+    if (remainingSuccessfulLoads.getAndUpdate(remaining -> remaining > 0 ? remaining - 1 : remaining) <= 0) {
+      throw new SegmentLoadingException("Test-induced load failure for segment[%s]", segment.getId());
+    }
     observedSegments.add(segment);
+    getSegmentInternal(segment);
+    return segment;
   }
 
   private ReferenceCountedSegmentProvider getSegmentInternal(final DataSegment segment)
   {
+    segmentLookup.putIfAbsent(segment.getId(), segment);
     return referenceProviders.compute(
-        segment,
-        (s, existingProvider) -> {
+        segment.getId(),
+        (id, existingProvider) -> {
           if (existingProvider == null) {
+            final DataSegment s = segmentLookup.get(id);
             if (s.isTombstone()) {
               return ReferenceCountedSegmentProvider.of(TombstoneSegmentizerFactory.segmentForTombstone(s));
             } else {
@@ -133,18 +164,22 @@ public class TestSegmentCacheManager extends NoopSegmentCacheManager
   }
 
   @Override
-  public Optional<Segment> acquireCachedSegment(DataSegment dataSegment)
+  public Optional<Segment> acquireCachedSegment(SegmentId segmentId, AcquireMode acquireMode)
   {
-    if (observedSegmentsRemovedFromCache.contains(dataSegment)) {
+    if (observedSegmentsRemovedFromCache.contains(segmentId)) {
       return Optional.empty();
     }
-    return getSegmentInternal(dataSegment).acquireReference();
+    final ReferenceCountedSegmentProvider provider = referenceProviders.get(segmentId);
+    if (provider == null) {
+      return Optional.empty();
+    }
+    return provider.acquireReference();
   }
 
   @Override
-  public AcquireSegmentAction acquireSegment(DataSegment dataSegment)
+  public AcquireSegmentAction acquireSegment(DataSegment dataSegment, AcquireMode acquireMode)
   {
-    if (observedSegmentsRemovedFromCache.contains(dataSegment)) {
+    if (observedSegmentsRemovedFromCache.contains(dataSegment.getId())) {
       return AcquireSegmentAction.missingSegment();
     }
     return new AcquireSegmentAction(
@@ -181,7 +216,7 @@ public class TestSegmentCacheManager extends NoopSegmentCacheManager
   public void drop(DataSegment segment)
   {
     getSegmentInternal(segment).close();
-    observedSegmentsRemovedFromCache.add(segment);
+    observedSegmentsRemovedFromCache.add(segment.getId());
   }
 
   public List<DataSegment> getObservedBootstrapSegments()
@@ -195,7 +230,7 @@ public class TestSegmentCacheManager extends NoopSegmentCacheManager
   }
 
 
-  public List<DataSegment> getObservedSegmentsRemovedFromCache()
+  public Set<SegmentId> getObservedSegmentsRemovedFromCache()
   {
     return observedSegmentsRemovedFromCache;
   }

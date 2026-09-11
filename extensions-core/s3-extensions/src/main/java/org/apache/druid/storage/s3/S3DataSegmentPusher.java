@@ -19,23 +19,22 @@
 
 package org.apache.druid.storage.s3;
 
-import com.amazonaws.AmazonServiceException;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.inject.Inject;
 import org.apache.druid.error.DruidException;
 import org.apache.druid.java.util.common.IOE;
-import org.apache.druid.java.util.common.StringUtils;
 import org.apache.druid.java.util.emitter.EmittingLogger;
+import org.apache.druid.segment.IndexIO;
 import org.apache.druid.segment.SegmentUtils;
 import org.apache.druid.segment.loading.DataSegmentPusher;
 import org.apache.druid.timeline.DataSegment;
 import org.apache.druid.utils.CompressionUtils;
+import software.amazon.awssdk.services.s3.model.S3Exception;
 
 import java.io.File;
 import java.io.IOException;
 import java.net.URI;
-import java.util.List;
+import java.nio.file.Files;
 import java.util.Map;
 
 public class S3DataSegmentPusher implements DataSegmentPusher
@@ -53,28 +52,6 @@ public class S3DataSegmentPusher implements DataSegmentPusher
   {
     this.s3Client = s3Client;
     this.config = config;
-  }
-
-  @Override
-  public String getPathForHadoop()
-  {
-    if (config.isUseS3aSchema()) {
-      return StringUtils.format("s3a://%s/%s", config.getBucket(), config.getBaseKey());
-    }
-    return StringUtils.format("s3n://%s/%s", config.getBucket(), config.getBaseKey());
-  }
-
-  @Deprecated
-  @Override
-  public String getPathForHadoop(String dataSource)
-  {
-    return getPathForHadoop();
-  }
-
-  @Override
-  public List<String> getAllowedPropertyPrefixesForHadoop()
-  {
-    return ImmutableList.of("druid.s3");
   }
 
   @Override
@@ -100,27 +77,29 @@ public class S3DataSegmentPusher implements DataSegmentPusher
 
   private DataSegment pushZip(File indexFilesDir, DataSegment baseSegment, String s3Path) throws IOException
   {
-    final File zipOutFile = File.createTempFile("druid", "index.zip");
-    final long indexSize = CompressionUtils.zip(indexFilesDir, zipOutFile);
-
-    final DataSegment outSegment = baseSegment.withSize(indexSize)
-                                              .withLoadSpec(makeLoadSpec(config.getBucket(), s3Path))
-                                              .withBinaryVersion(SegmentUtils.getVersionFromDir(indexFilesDir));
-
+    final File zipOutFile = Files.createTempFile("druid", "index.zip").toFile();
     try {
-      return S3Utils.retryS3Operation(
-          () -> {
-            S3Utils.uploadFileIfPossible(s3Client, config.getDisableAcl(), config.getBucket(), s3Path, zipOutFile);
+      final long indexSize = CompressionUtils.zip(indexFilesDir, zipOutFile);
 
-            return outSegment;
-          }
-      );
-    }
-    catch (AmazonServiceException e) {
-      throw handlePushServiceException(e, indexSize);
-    }
-    catch (Exception e) {
-      throw new RuntimeException(e);
+      final DataSegment outSegment = baseSegment.withSize(indexSize)
+                                                .withLoadSpec(makeLoadSpec(config.getBucket(), s3Path))
+                                                .withBinaryVersion(SegmentUtils.getVersionFromDir(indexFilesDir));
+
+      try {
+        return S3Utils.retryS3Operation(
+            () -> {
+              S3Utils.uploadFileIfPossible(s3Client, config.getDisableAcl(), config.getBucket(), s3Path, zipOutFile);
+
+              return outSegment;
+            }
+        );
+      }
+      catch (S3Exception e) {
+        throw handlePushServiceException(e, indexSize);
+      }
+      catch (Exception e) {
+        throw new RuntimeException(e);
+      }
     }
     finally {
       log.debug("Deleting temporary cached index.zip");
@@ -148,7 +127,7 @@ public class S3DataSegmentPusher implements DataSegmentPusher
               }
           );
         }
-        catch (AmazonServiceException e) {
+        catch (S3Exception e) {
           throw handlePushServiceException(e, file.length());
         }
         catch (Exception e) {
@@ -160,9 +139,13 @@ public class S3DataSegmentPusher implements DataSegmentPusher
       }
     }
 
+    final int binaryVersion = SegmentUtils.getVersionFromDir(indexFilesDir);
+    // V10 unzipped is rangeable: a single druid.segment with a range-readable header. V9 unzipped is a directory of
+    // separate smoosh files the range-read path can't consume.
+    final boolean rangeable = binaryVersion == IndexIO.V10_VERSION;
     return baseSegment.withSize(size)
-                      .withLoadSpec(makeLoadSpec(config.getBucket(), s3Path))
-                      .withBinaryVersion(SegmentUtils.getVersionFromDir(indexFilesDir));
+                      .withLoadSpec(makeLoadSpec(config.getBucket(), s3Path, rangeable))
+                      .withBinaryVersion(binaryVersion);
   }
 
   @Override
@@ -186,11 +169,31 @@ public class S3DataSegmentPusher implements DataSegmentPusher
         "key",
         key,
         "S3Schema",
-        config.isUseS3aSchema() ? "s3a" : "s3n"
+        "s3n"
     );
   }
 
-  private static IOException handlePushServiceException(AmazonServiceException e, long indexSize)
+  /**
+   * Variant that stamps {@link S3LoadSpec#RANGEABLE} so {@link S3LoadSpec#openRangeReader()} can decide range-read
+   * eligibility. Used by the unzipped push path where the binary version is known at write time.
+   */
+  private Map<String, Object> makeLoadSpec(String bucket, String key, boolean rangeable)
+  {
+    return ImmutableMap.of(
+        "type",
+        "s3_zip",
+        "bucket",
+        bucket,
+        "key",
+        key,
+        "S3Schema",
+        "s3n",
+        S3LoadSpec.RANGEABLE,
+        rangeable
+    );
+  }
+
+  private static IOException handlePushServiceException(S3Exception e, long indexSize)
   {
     if (S3Utils.ERROR_ENTITY_TOO_LARGE.equals(S3Utils.getS3ErrorCode(e))) {
       throw DruidException

@@ -32,19 +32,24 @@ import org.apache.druid.jackson.DefaultObjectMapper;
 import org.apache.druid.java.util.common.DateTimes;
 import org.apache.druid.java.util.common.Intervals;
 import org.apache.druid.java.util.common.jackson.JacksonUtils;
+import org.apache.druid.math.expr.ExprMacroTable;
 import org.apache.druid.query.aggregation.CountAggregatorFactory;
+import org.apache.druid.query.expression.TestExprMacroTable;
 import org.apache.druid.query.filter.SelectorDimFilter;
 import org.apache.druid.segment.IndexSpec;
+import org.apache.druid.segment.VirtualColumns;
+import org.apache.druid.segment.column.ColumnType;
 import org.apache.druid.segment.transform.CompactionTransformSpec;
+import org.apache.druid.segment.virtual.ExpressionVirtualColumn;
 import org.apache.druid.timeline.CompactionState;
 import org.apache.druid.timeline.DataSegment;
 import org.apache.druid.timeline.SegmentId;
 import org.apache.druid.timeline.partition.NumberedShardSpec;
 import org.joda.time.DateTime;
 import org.joda.time.Interval;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.Map;
@@ -54,10 +59,11 @@ public class DataSegmentPlusTest
   private static final ObjectMapper MAPPER = new DefaultObjectMapper();
   private static final int TEST_VERSION = 0x9;
 
-  @Before
+  @BeforeEach
   public void setUp()
   {
     InjectableValues.Std injectableValues = new InjectableValues.Std();
+    injectableValues.addValue(ExprMacroTable.class, TestExprMacroTable.INSTANCE);
     injectableValues.addValue(DataSegment.PruneSpecsHolder.class, DataSegment.PruneSpecsHolder.DEFAULT);
     MAPPER.setInjectableValues(injectableValues);
   }
@@ -89,17 +95,28 @@ public class DataSegmentPlusTest
                    .dimensions(Arrays.asList("dim1", "dim2"))
                    .metrics(Arrays.asList("met1", "met2"))
                    .projections(Arrays.asList("proj1", "proj2"))
-                   .lastCompactionState(new CompactionState(
-                       new HashedPartitionsSpec(100000, null, ImmutableList.of("dim1")),
-                       new DimensionsSpec(
-                           DimensionsSpec.getDefaultSchemas(ImmutableList.of("dim1", "bar", "foo"))
-                       ),
-                       ImmutableList.of(new CountAggregatorFactory("cnt")),
-                       new CompactionTransformSpec(new SelectorDimFilter("dim1", "foo", null)),
-                       MAPPER.convertValue(ImmutableMap.of(), IndexSpec.class),
-                       MAPPER.convertValue(ImmutableMap.of(), GranularitySpec.class),
-                       null
-                   ))
+                   .lastCompactionState(
+                       CompactionState.builder()
+                                      .partitionsSpec(new HashedPartitionsSpec(100000, null, ImmutableList.of("dim1")))
+                                      .dimensionsSpec(new DimensionsSpec(
+                                          DimensionsSpec.getDefaultSchemas(ImmutableList.of("dim1", "bar", "foo"))
+                                      ))
+                                      .metricsSpec(ImmutableList.of(new CountAggregatorFactory("cnt")))
+                                      .transformSpec(new CompactionTransformSpec(
+                                          new SelectorDimFilter("dim1", "foo", null),
+                                          VirtualColumns.create(
+                                              new ExpressionVirtualColumn(
+                                                  "isRobotFiltered",
+                                                  "concat(isRobot, '_filtered')",
+                                                  ColumnType.STRING,
+                                                  ExprMacroTable.nil()
+                                              )
+                                          )
+                                      ))
+                                      .indexSpec(MAPPER.convertValue(ImmutableMap.of(), IndexSpec.class))
+                                      .granularitySpec(MAPPER.convertValue(ImmutableMap.of(), GranularitySpec.class))
+                                      .build()
+                   )
                    .indexingStateFingerprint(indexingStateFingerprint)
                    .binaryVersion(TEST_VERSION)
                    .size(123L)
@@ -119,34 +136,34 @@ public class DataSegmentPlusTest
         JacksonUtils.TYPE_REFERENCE_MAP_STRING_OBJECT
     );
 
-    Assert.assertEquals(8, objectMap.size());
+    Assertions.assertEquals(8, objectMap.size());
     final Map<String, Object> segmentObjectMap = MAPPER.readValue(
         MAPPER.writeValueAsString(segmentPlus.getDataSegment()),
         JacksonUtils.TYPE_REFERENCE_MAP_STRING_OBJECT
     );
 
     // verify dataSegment
-    Assert.assertEquals(14, segmentObjectMap.size());
-    Assert.assertEquals("something", segmentObjectMap.get("dataSource"));
-    Assert.assertEquals(interval.toString(), segmentObjectMap.get("interval"));
-    Assert.assertEquals("1", segmentObjectMap.get("version"));
-    Assert.assertEquals(loadSpec, segmentObjectMap.get("loadSpec"));
-    Assert.assertEquals("dim1,dim2", segmentObjectMap.get("dimensions"));
-    Assert.assertEquals("met1,met2", segmentObjectMap.get("metrics"));
-    Assert.assertEquals("proj1,proj2", segmentObjectMap.get("projections"));
-    Assert.assertEquals(
+    Assertions.assertEquals(14, segmentObjectMap.size());
+    Assertions.assertEquals("something", segmentObjectMap.get("dataSource"));
+    Assertions.assertEquals(interval.toString(), segmentObjectMap.get("interval"));
+    Assertions.assertEquals("1", segmentObjectMap.get("version"));
+    Assertions.assertEquals(loadSpec, segmentObjectMap.get("loadSpec"));
+    Assertions.assertEquals("dim1,dim2", segmentObjectMap.get("dimensions"));
+    Assertions.assertEquals("met1,met2", segmentObjectMap.get("metrics"));
+    Assertions.assertEquals("proj1,proj2", segmentObjectMap.get("projections"));
+    Assertions.assertEquals(
         ImmutableMap.of("type", "numbered", "partitionNum", 3, "partitions", 0),
         segmentObjectMap.get("shardSpec")
     );
-    Assert.assertEquals(TEST_VERSION, segmentObjectMap.get("binaryVersion"));
-    Assert.assertEquals(123, segmentObjectMap.get("size"));
-    Assert.assertEquals(12, segmentObjectMap.get("totalRows"));
-    Assert.assertEquals(6, ((Map) segmentObjectMap.get("lastCompactionState")).size());
-    Assert.assertEquals("abc123", segmentObjectMap.get("indexingStateFingerprint"));
+    Assertions.assertEquals(TEST_VERSION, segmentObjectMap.get("binaryVersion"));
+    Assertions.assertEquals(123, segmentObjectMap.get("size"));
+    Assertions.assertEquals(12, segmentObjectMap.get("totalRows"));
+    Assertions.assertEquals(6, ((Map) segmentObjectMap.get("lastCompactionState")).size());
+    Assertions.assertEquals("abc123", segmentObjectMap.get("indexingStateFingerprint"));
 
     // verify extra metadata
-    Assert.assertEquals(createdDateStr, objectMap.get("createdDate"));
-    Assert.assertEquals(usedStatusLastUpdatedDateStr, objectMap.get("usedStatusLastUpdatedDate"));
+    Assertions.assertEquals(createdDateStr, objectMap.get("createdDate"));
+    Assertions.assertEquals(usedStatusLastUpdatedDateStr, objectMap.get("usedStatusLastUpdatedDate"));
 
     DataSegmentPlus deserializedSegmentPlus = MAPPER.readValue(
         MAPPER.writeValueAsString(segmentPlus),
@@ -154,14 +171,14 @@ public class DataSegmentPlusTest
     );
 
     // verify dataSegment
-    Assert.assertEquals(
+    Assertions.assertEquals(
         segmentPlus.getDataSegment().toString(),
         deserializedSegmentPlus.getDataSegment().toString()
     );
 
     // verify extra metadata
-    Assert.assertEquals(segmentPlus.getCreatedDate(), deserializedSegmentPlus.getCreatedDate());
-    Assert.assertEquals(
+    Assertions.assertEquals(segmentPlus.getCreatedDate(), deserializedSegmentPlus.getCreatedDate());
+    Assertions.assertEquals(
         segmentPlus.getUsedStatusLastUpdatedDate(),
         deserializedSegmentPlus.getUsedStatusLastUpdatedDate()
     );

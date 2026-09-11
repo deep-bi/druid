@@ -28,6 +28,7 @@ import com.opencsv.RFC4180ParserBuilder;
 import org.apache.druid.data.input.impl.DimensionsSpec;
 import org.apache.druid.error.InvalidInput;
 import org.apache.druid.frame.FrameType;
+import org.apache.druid.frame.processor.FrameCombiner;
 import org.apache.druid.indexing.common.TaskLockType;
 import org.apache.druid.indexing.common.task.Tasks;
 import org.apache.druid.java.util.common.DateTimes;
@@ -38,6 +39,7 @@ import org.apache.druid.msq.exec.ClusterStatisticsMergeMode;
 import org.apache.druid.msq.exec.ExecutionContext;
 import org.apache.druid.msq.exec.Limits;
 import org.apache.druid.msq.exec.SegmentSource;
+import org.apache.druid.msq.exec.StageProcessor;
 import org.apache.druid.msq.exec.WorkerMemoryParameters;
 import org.apache.druid.msq.indexing.destination.MSQSelectDestination;
 import org.apache.druid.msq.indexing.error.MSQWarnings;
@@ -46,7 +48,6 @@ import org.apache.druid.msq.querykit.ReadableInputQueue;
 import org.apache.druid.msq.rpc.ControllerResource;
 import org.apache.druid.msq.rpc.SketchEncoding;
 import org.apache.druid.msq.sql.MSQMode;
-import org.apache.druid.msq.sql.MSQTaskQueryMaker;
 import org.apache.druid.query.QueryContext;
 import org.apache.druid.query.QueryContexts;
 import org.apache.druid.segment.IndexSpec;
@@ -56,8 +57,10 @@ import javax.annotation.Nullable;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -168,6 +171,16 @@ public class MultiStageQueryContext
   public static final String CTX_REMOVE_NULL_BYTES = "removeNullBytes";
   public static final boolean DEFAULT_REMOVE_NULL_BYTES = false;
 
+  public static final String CTX_BACKGROUND_FETCH_EXTERNAL_FILES = "backgroundFetchExternalFiles";
+  public static final boolean DEFAULT_BACKGROUND_FETCH_EXTERNAL_FILES = true;
+
+  /**
+   * Hint to {@link StageProcessor} implementations about whether they should attempt to use
+   * {@link FrameCombiner} when doing sort-based aggregations.
+   */
+  public static final String CTX_USE_COMBINER = "useCombiner";
+  public static final boolean DEFAULT_USE_COMBINER = false;
+
   /**
    * Used by {@link #getMaxRowsInMemory(QueryContext)}.
    */
@@ -190,6 +203,11 @@ public class MultiStageQueryContext
   public static final String CTX_MAX_NUM_SEGMENTS = "maxNumSegments";
 
   public static final String CTX_START_TIME = "startTime";
+
+  /**
+   * The time that a query should time out. Value is an ISO8601 timestamp.
+   */
+  public static final String CTX_QUERY_DEADLINE = "queryDeadline";
 
   /**
    * Controls sort order within segments. Normally, this is the same as the overall order of the query (from the
@@ -218,6 +236,13 @@ public class MultiStageQueryContext
   public static final boolean DEFAULT_INCLUDE_ALL_COUNTERS = true;
 
   /**
+   * Whether worker tasks read input segments via on-demand partial (per-column) downloads instead of downloading each
+   * segment in full. Aliases the task-context key {@link Tasks#VIRTUAL_STORAGE_PARTIAL_DOWNLOADS_KEY} so it can be set
+   * on the MSQ query context; when unset it falls back to the node's {@code TaskConfig} default.
+   */
+  public static final String CTX_VIRTUAL_STORAGE_PARTIAL_DOWNLOADS = Tasks.VIRTUAL_STORAGE_PARTIAL_DOWNLOADS_KEY;
+
+  /**
    * Whether workers should send live counter updates to the controller via the message relay. When enabled, workers
    * periodically send counter snapshots to the controller, allowing the controller to have more up-to-date progress
    * information.
@@ -230,7 +255,7 @@ public class MultiStageQueryContext
   /**
    * The {@link FrameType} to use for row-based frames. This context parameter exists to support rolling updates from
    * older Druid versions. The latest type is given by {@link FrameType#latestRowBased()}, which is set in
-   * {@link MSQTaskQueryMaker#buildOverrideContext} starting in Druid 34. Once all servers are on Druid 34 or newer,
+   * {@link MultiStageQueryContext#withCommonContext} starting in Druid 34. Once all servers are on Druid 34 or newer,
    * the current-latest type {@link FrameType#ROW_BASED_V2} is used.
    */
   public static final String CTX_ROW_BASED_FRAME_TYPE = "rowBasedFrameType";
@@ -260,7 +285,10 @@ public class MultiStageQueryContext
   public static final String CTX_MAX_THREADS = "maxThreads";
 
   /**
-   * Maximum number of segments to load ahead of them being needed. Used when setting up {@link ReadableInputQueue}.
+   * Number of segments to load ahead of them being needed. Used when setting up {@link ReadableInputQueue}.
+   * <p>
+   * A worker may be configured with a local default for this value. When this context value is set, it always wins;
+   * the worker-local default applies only when this context value is absent.
    */
   public static final String CTX_SEGMENT_LOAD_AHEAD_COUNT = "segmentLoadAheadCount";
 
@@ -299,6 +327,14 @@ public class MultiStageQueryContext
         CTX_MAX_CONCURRENT_STAGES,
         defaultMaxConcurrentStages
     );
+  }
+
+  public static boolean getVirtualStoragePartialDownloadsEnabled(
+      final QueryContext queryContext,
+      final boolean defaultValue
+  )
+  {
+    return queryContext.getBoolean(CTX_VIRTUAL_STORAGE_PARTIAL_DOWNLOADS, defaultValue);
   }
 
   public static boolean isDurableStorageEnabled(final QueryContext queryContext)
@@ -458,6 +494,16 @@ public class MultiStageQueryContext
     return queryContext.getBoolean(CTX_REMOVE_NULL_BYTES, DEFAULT_REMOVE_NULL_BYTES);
   }
 
+  public static boolean isBackgroundFetchExternalFiles(final QueryContext queryContext)
+  {
+    return queryContext.getBoolean(CTX_BACKGROUND_FETCH_EXTERNAL_FILES, DEFAULT_BACKGROUND_FETCH_EXTERNAL_FILES);
+  }
+
+  public static boolean isUseCombiner(final QueryContext queryContext)
+  {
+    return queryContext.getBoolean(CTX_USE_COMBINER, DEFAULT_USE_COMBINER);
+  }
+
   public static boolean isDartQuery(final QueryContext queryContext)
   {
     return queryContext.get(QueryContexts.CTX_DART_QUERY_ID) != null;
@@ -576,14 +622,64 @@ public class MultiStageQueryContext
   public static DateTime getStartTime(final QueryContext queryContext)
   {
     // Get the start time from the query context set by the broker.
-    if (!queryContext.containsKey(CTX_START_TIME)) {
-      // If it is missing, as could be the case for an older version of the broker, use the current time instead, to
-      // have something to timeout against.
-      DateTime startTime = DateTimes.nowUtc();
-      log.warn("Query context does not contain start time. Defaulting to the current time[%s] instead.", startTime);
-      return startTime;
+    final String startTime = queryContext.getString(CTX_START_TIME);
+    if (startTime != null) {
+      return DateTimes.of(startTime);
+    } else {
+      // If it is missing, as could be the case for an older version of the broker, use the current time instead.
+      final DateTime now = DateTimes.nowUtc();
+      log.warn("Query context does not contain start time. Defaulting to the current time[%s] instead.", now);
+      return now;
     }
-    return DateTimes.of(queryContext.getString(CTX_START_TIME));
+  }
+
+  @Nullable
+  public static DateTime getQueryDeadline(final QueryContext queryContext)
+  {
+    final String queryDeadline = queryContext.getString(CTX_QUERY_DEADLINE);
+    if (queryDeadline != null) {
+      return DateTimes.of(queryDeadline);
+    } else {
+      return null;
+    }
+  }
+
+  /**
+   * Returns a final query context including common context keys shared across all MSQ engines (task, Dart, etc.).
+   */
+  public static QueryContext withCommonContext(final QueryContext originalContext)
+  {
+    final Map<String, Object> overrides = new HashMap<>();
+
+    // Add appropriate finalization to native query context.
+    if (!originalContext.containsKey(QueryContexts.FINALIZE_KEY)) {
+      overrides.put(QueryContexts.FINALIZE_KEY, isFinalizeAggregations(originalContext));
+    }
+
+    // This flag is to ensure backward compatibility, as brokers are upgraded after indexers/middlemanagers.
+    if (!originalContext.containsKey(WINDOW_FUNCTION_OPERATOR_TRANSFORMATION)) {
+      overrides.put(WINDOW_FUNCTION_OPERATOR_TRANSFORMATION, true);
+    }
+
+    if (!originalContext.containsKey(CTX_ROW_BASED_FRAME_TYPE)) {
+      // Use the latest row-based frame type. The default is an older type, to ensure compatibility during rolling
+      // updates. Since the Broker is updated last, it's safe to set this property on the Broker.
+      overrides.put(CTX_ROW_BASED_FRAME_TYPE, (int) FrameType.latestRowBased().version());
+    }
+
+    // Add start time.
+    final DateTime now = DateTimes.nowUtc();
+    overrides.put(CTX_START_TIME, now.toString());
+
+    // Add query deadline if not already present (and if timeout is set).
+    if (!originalContext.containsKey(CTX_QUERY_DEADLINE)) {
+      final long timeout = originalContext.getTimeout(QueryContexts.NO_TIMEOUT);
+      if (timeout != QueryContexts.NO_TIMEOUT) {
+        overrides.put(CTX_QUERY_DEADLINE, now.plus(timeout).toString());
+      }
+    }
+
+    return originalContext.override(overrides);
   }
 
   public static Set<String> getColumnsExcludedFromTypeVerification(final QueryContext queryContext)

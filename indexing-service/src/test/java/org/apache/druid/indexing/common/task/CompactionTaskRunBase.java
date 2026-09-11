@@ -31,12 +31,12 @@ import com.google.common.util.concurrent.ListenableFuture;
 import org.apache.druid.client.coordinator.CoordinatorClient;
 import org.apache.druid.client.coordinator.NoopCoordinatorClient;
 import org.apache.druid.client.indexing.ClientCompactionTaskGranularitySpec;
-import org.apache.druid.data.input.impl.CSVParseSpec;
+import org.apache.druid.data.input.InputFormat;
+import org.apache.druid.data.input.impl.CsvInputFormat;
 import org.apache.druid.data.input.impl.DimensionSchema;
 import org.apache.druid.data.input.impl.DimensionsSpec;
 import org.apache.druid.data.input.impl.LongDimensionSchema;
 import org.apache.druid.data.input.impl.NewSpatialDimensionSchema;
-import org.apache.druid.data.input.impl.ParseSpec;
 import org.apache.druid.data.input.impl.StringDimensionSchema;
 import org.apache.druid.data.input.impl.TimestampSpec;
 import org.apache.druid.indexer.TaskState;
@@ -101,16 +101,18 @@ import org.apache.druid.segment.loading.NoopDataSegmentKiller;
 import org.apache.druid.segment.loading.SegmentCacheManager;
 import org.apache.druid.segment.loading.SegmentLoaderConfig;
 import org.apache.druid.segment.loading.SegmentLocalCacheManager;
+import org.apache.druid.segment.loading.StorageLoadingThreadPool;
 import org.apache.druid.segment.loading.StorageLocation;
 import org.apache.druid.segment.loading.StorageLocationConfig;
 import org.apache.druid.segment.loading.TombstoneLoadSpec;
 import org.apache.druid.segment.metadata.CentralizedDatasourceSchemaConfig;
 import org.apache.druid.segment.nested.NestedCommonFormatColumnFormatSpec;
-import org.apache.druid.segment.realtime.NoopChatHandlerProvider;
+import org.apache.druid.segment.realtime.ChatHandlerProvider;
 import org.apache.druid.segment.realtime.WindowedCursorFactory;
 import org.apache.druid.segment.transform.CompactionTransformSpec;
 import org.apache.druid.server.metrics.NoopServiceEmitter;
 import org.apache.druid.server.security.AuthTestUtils;
+import org.apache.druid.testing.TemporaryFolderExtension;
 import org.apache.druid.timeline.CompactionState;
 import org.apache.druid.timeline.DataSegment;
 import org.apache.druid.timeline.partition.HashBasedNumberedShardSpec;
@@ -118,15 +120,15 @@ import org.apache.druid.timeline.partition.NumberedOverwriteShardSpec;
 import org.apache.druid.timeline.partition.NumberedShardSpec;
 import org.apache.druid.timeline.partition.PartitionIds;
 import org.joda.time.Interval;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Assume;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
 
 import javax.annotation.Nullable;
+
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.IOException;
@@ -148,13 +150,14 @@ import java.util.stream.Collectors;
 public abstract class CompactionTaskRunBase
 {
   protected static final String DATA_SOURCE = "test";
-  protected static final ParseSpec DEFAULT_PARSE_SPEC = new CSVParseSpec(
-      new TimestampSpec("ts", "auto", null),
-      new DimensionsSpec(DimensionsSpec.getDefaultSchemas(Arrays.asList("ts", "dim"))),
-      "|",
+  protected static final TimestampSpec DEFAULT_TIMESTAMP_SPEC = new TimestampSpec("ts", "auto", null);
+  protected static final InputFormat DEFAULT_INPUT_FORMAT = new CsvInputFormat(
       Arrays.asList("ts", "dim", "val"),
+      "|",
+      null,
       false,
-      0
+      0,
+      null
   );
   protected static final Granularity DEFAULT_SEGMENT_GRAN = Granularities.HOUR;
   protected static final Granularity DEFAULT_QUERY_GRAN = Granularities.MINUTE;
@@ -170,6 +173,7 @@ public abstract class CompactionTaskRunBase
 
   protected static final Interval TEST_INTERVAL_DAY = Intervals.of("2014-01-01/2014-01-02");
   protected static final Interval TEST_INTERVAL = Intervals.of("2014-01-01T00:00:00Z/2014-01-01T06:00:00Z");
+  protected static final Interval TEST_ACTUAL_INTERVAL = Intervals.of("2014-01-01T00:00:00Z/2014-01-01T03:00:00Z");
   protected static final List<String> TEST_ROWS = ImmutableList.of(
       "2014-01-01T00:00:10Z,a,1\n",
       "2014-01-01T00:00:10Z,b,2\n",
@@ -184,10 +188,12 @@ public abstract class CompactionTaskRunBase
   );
   protected static final int TOTAL_TEST_ROWS = 10;
 
-  @Rule
-  public TemporaryFolder temporaryFolder = new TemporaryFolder();
+  //CHECKSTYLE.OFF: ConstantName
+  @RegisterExtension
+  public static final TemporaryFolderExtension temporaryFolder = TemporaryFolderExtension.classScoped();
+  //CHECKSTYLE.ON: ConstantName
 
-  @Rule
+  @RegisterExtension
   public TaskActionTestKit taskActionTestKit = new TaskActionTestKit();
 
   protected ObjectMapper objectMapper;
@@ -216,7 +222,7 @@ public abstract class CompactionTaskRunBase
       boolean useConcurrentLocks,
       Interval inputInterval,
       Granularity segmentGranularity
-  ) throws IOException
+  )
   {
     this.lockGranularity = lockGranularity;
     this.useCentralizedDatasourceSchema = useCentralizedDatasourceSchema;
@@ -227,10 +233,9 @@ public abstract class CompactionTaskRunBase
     this.inputInterval = inputInterval;
     this.segmentGranularity = segmentGranularity;
 
-    temporaryFolder.create();
-    reportsFile = temporaryFolder.newFile();
+    reportsFile = new File(temporaryFolder.getRoot(), "reports.json");
     testUtils = new TestUtils();
-    segmentCacheManagerFactory = new SegmentCacheManagerFactory(TestIndex.INDEX_IO, testUtils.getTestObjectMapper());
+    segmentCacheManagerFactory = SegmentCacheManagerFactory.createWithOwnedPool(TestIndex.INDEX_IO, testUtils.getTestObjectMapper());
 
     objectMapper = testUtils.getTestObjectMapper();
     objectMapper.registerSubtypes(new NamedType(LocalLoadSpec.class, "local"));
@@ -275,18 +280,17 @@ public abstract class CompactionTaskRunBase
     };
   }
 
-  @Before
+  @BeforeEach
   public void setup() throws IOException
   {
     exec = Execs.multiThreaded(2, "compaction-task-run-test-%d");
     localDeepStorage = temporaryFolder.newFolder();
   }
 
-  @After
-  public void teardown()
+  @AfterEach
+  public void teardown() throws IOException
   {
     exec.shutdownNow();
-    temporaryFolder.delete();
   }
 
   @Test
@@ -303,19 +307,22 @@ public abstract class CompactionTaskRunBase
     final DataSegmentsWithSchemas dataSegmentsWithSchemas = resultPair.rhs;
     final List<DataSegment> segments = new ArrayList<>(dataSegmentsWithSchemas.getSegments());
     List<String> rowsFromSegment = getCSVFormatRowsFromSegments(segments);
-    Assert.assertEquals(TEST_ROWS, rowsFromSegment);
-    verifyCompactedSegment(segments, segmentGranularity, DEFAULT_QUERY_GRAN, false);
+    Assertions.assertEquals(TEST_ROWS, rowsFromSegment);
+    verifyCompactedSegment(
+        compactionTask.getCompactionRunner(),
+        segments,
+        segmentGranularity,
+        DEFAULT_QUERY_GRAN,
+        false
+    );
   }
 
   @Test
   public void testRunWithHashPartitioning() throws Exception
   {
     // Hash partitioning is not supported with segment lock yet
-    Assume.assumeTrue(
-        "Hash partitioning is not supported with segment lock yet",
-        lockGranularity != LockGranularity.SEGMENT
-    );
-    Assume.assumeTrue("Test null segment granularity is sufficient", segmentGranularity == null);
+    Assumptions.assumeTrue(lockGranularity != LockGranularity.SEGMENT, "Hash partitioning is not supported with segment lock yet");
+    Assumptions.assumeTrue(segmentGranularity == null, "Test null segment granularity is sufficient");
     verifyTaskSuccessRowsAndSchemaMatch(runIndexTask(), TOTAL_TEST_ROWS);
 
     final CompactionTask compactionTask =
@@ -333,22 +340,22 @@ public abstract class CompactionTaskRunBase
     final List<DataSegment> segments = List.copyOf(resultPair.rhs.getSegments());
     List<String> rowsFromSegment = getCSVFormatRowsFromSegments(segments);
     rowsFromSegment.sort(Ordering.natural());
-    Assert.assertEquals(TEST_ROWS, rowsFromSegment);
-    Assert.assertEquals(6, segments.size());
+    Assertions.assertEquals(TEST_ROWS, rowsFromSegment);
+    Assertions.assertEquals(6, segments.size());
 
     for (int i = 0; i < 3; i++) {
       final Interval interval = Intervals.of("2014-01-01T0%d:00:00/2014-01-01T0%d:00:00", i, i + 1);
       for (int j = 0; j < 2; j++) {
         final int segmentIdx = i * 2 + j;
-        Assert.assertEquals(interval, segments.get(segmentIdx).getInterval());
+        Assertions.assertEquals(interval, segments.get(segmentIdx).getInterval());
         CompactionState expectedState =
             getDefaultCompactionState(Granularities.HOUR, Granularities.MINUTE, List.of(interval))
                 .toBuilder()
                 .partitionsSpec(new HashedPartitionsSpec(null, 3, null))
                 .indexSpec(compactionTask.getTuningConfig().getIndexSpec().getEffectiveSpec())
                 .build();
-        Assert.assertEquals(expectedState, segments.get(segmentIdx).getLastCompactionState());
-        Assert.assertSame(HashBasedNumberedShardSpec.class, segments.get(segmentIdx).getShardSpec().getClass());
+        Assertions.assertEquals(expectedState, segments.get(segmentIdx).getLastCompactionState());
+        Assertions.assertSame(HashBasedNumberedShardSpec.class, segments.get(segmentIdx).getShardSpec().getClass());
       }
     }
   }
@@ -356,7 +363,7 @@ public abstract class CompactionTaskRunBase
   @Test
   public void testRunCompactionTwice() throws Exception
   {
-    Assume.assumeTrue(lockGranularity == LockGranularity.TIME_CHUNK);
+    Assumptions.assumeTrue(lockGranularity == LockGranularity.TIME_CHUNK);
     verifyTaskSuccessRowsAndSchemaMatch(runIndexTask(), TOTAL_TEST_ROWS);
 
     final CompactionTask compactionTask1 =
@@ -364,20 +371,50 @@ public abstract class CompactionTaskRunBase
 
     final Pair<TaskStatus, DataSegmentsWithSchemas> resultPair1 = runTask(compactionTask1);
     verifyTaskSuccessRowsAndSchemaMatch(resultPair1, TOTAL_TEST_ROWS);
-    verifyCompactedSegment(List.copyOf(resultPair1.rhs.getSegments()), segmentGranularity, DEFAULT_QUERY_GRAN, false);
+    verifyCompactedSegment(
+        compactionTask1.getCompactionRunner(),
+        List.copyOf(resultPair1.rhs.getSegments()),
+        segmentGranularity,
+        DEFAULT_QUERY_GRAN,
+        false
+    );
 
     final CompactionTask compactionTask2 =
         compactionTaskBuilder(segmentGranularity).interval(inputInterval, true).build();
 
     final Pair<TaskStatus, DataSegmentsWithSchemas> resultPair2 = runTask(compactionTask2);
     verifyTaskSuccessRowsAndSchemaMatch(resultPair2, TOTAL_TEST_ROWS);
-    verifyCompactedSegment(List.copyOf(resultPair2.rhs.getSegments()), segmentGranularity, DEFAULT_QUERY_GRAN, false);
+    if (segmentGranularity == null || segmentGranularity.equals(Granularities.HOUR)) {
+      verifyCompactedSegment(
+          compactionTask1.getCompactionRunner(),
+          List.copyOf(resultPair2.rhs.getSegments()),
+          segmentGranularity,
+          DEFAULT_QUERY_GRAN,
+          false
+      );
+    } else if (segmentGranularity.equals(Granularities.SIX_HOUR)) {
+      Set<DataSegment> compactedSegments = resultPair2.rhs.getSegments();
+      Assertions.assertEquals(1, compactedSegments.size());
+
+      DataSegment compactedSegment = Iterables.getOnlyElement(compactedSegments);
+      Assertions.assertEquals(TEST_INTERVAL, compactedSegment.getInterval());
+
+      // compact interval is always the SIX_HOUR interval, since the previous compaction has generated a new SIX_HOUR segment, this means the compaction state in the second compaction is different from the first one.
+      Assertions.assertEquals(
+          getDefaultCompactionState(segmentGranularity, DEFAULT_QUERY_GRAN, List.of(TEST_INTERVAL)),
+          compactedSegment.getLastCompactionState()
+      );
+      Assertions.assertEquals(new NumberedShardSpec(0, 1), compactedSegment.getShardSpec());
+
+    } else {
+      throw new RE("Gran[%s] is not supported", segmentGranularity);
+    }
   }
 
   @Test
   public void testRunCompactionTwiceWithSegmentLock() throws Exception
   {
-    Assume.assumeTrue(lockGranularity == LockGranularity.SEGMENT);
+    Assumptions.assumeTrue(lockGranularity == LockGranularity.SEGMENT);
     verifyTaskSuccessRowsAndSchemaMatch(runIndexTask(), TOTAL_TEST_ROWS);
 
     final CompactionTask compactionTask1 =
@@ -385,7 +422,13 @@ public abstract class CompactionTaskRunBase
 
     final Pair<TaskStatus, DataSegmentsWithSchemas> resultPair1 = runTask(compactionTask1);
     verifyTaskSuccessRowsAndSchemaMatch(resultPair1, TOTAL_TEST_ROWS);
-    verifyCompactedSegment(List.copyOf(resultPair1.rhs.getSegments()), segmentGranularity, DEFAULT_QUERY_GRAN, true);
+    verifyCompactedSegment(
+        compactionTask1.getCompactionRunner(),
+        List.copyOf(resultPair1.rhs.getSegments()),
+        segmentGranularity,
+        DEFAULT_QUERY_GRAN,
+        true
+    );
 
     final CompactionTask compactionTask2 =
         compactionTaskBuilder(segmentGranularity).interval(inputInterval, false).build();
@@ -394,18 +437,18 @@ public abstract class CompactionTaskRunBase
     verifyTaskSuccessRowsAndSchemaMatch(resultPair2, TOTAL_TEST_ROWS);
     List<DataSegment> segments = List.copyOf(resultPair2.rhs.getSegments());
     if (segmentGranularity == null || segmentGranularity.equals(Granularities.HOUR)) {
-      Assert.assertEquals(3, segments.size());
+      Assertions.assertEquals(3, segments.size());
 
       for (int i = 0; i < 3; i++) {
         Interval interval = Intervals.of("2014-01-01T0%d:00:00/2014-01-01T0%d:00:00", i, i + 1);
-        Assert.assertEquals(interval, segments.get(i).getInterval());
-        Interval inputInterval = segmentGranularity == null ? interval : this.inputInterval;
-        Assert.assertEquals(
-            getDefaultCompactionState(DEFAULT_SEGMENT_GRAN, DEFAULT_QUERY_GRAN, List.of(inputInterval)),
+        Assertions.assertEquals(interval, segments.get(i).getInterval());
+        Interval compactInterval = segmentGranularity == null ? interval : TEST_ACTUAL_INTERVAL;
+        Assertions.assertEquals(
+            getDefaultCompactionState(DEFAULT_SEGMENT_GRAN, DEFAULT_QUERY_GRAN, List.of(compactInterval)),
             segments.get(i).getLastCompactionState()
         );
         // overwrite shard starts at NON_ROOT_GEN_START_PARTITION_ID + 1, and minor version 2 for the second compaction
-        Assert.assertEquals(new NumberedOverwriteShardSpec(
+        Assertions.assertEquals(new NumberedOverwriteShardSpec(
             PartitionIds.NON_ROOT_GEN_START_PARTITION_ID + 1,
             0,
             2,
@@ -414,14 +457,15 @@ public abstract class CompactionTaskRunBase
         ), segments.get(i).getShardSpec());
       }
     } else if (segmentGranularity.equals(Granularities.SIX_HOUR)) {
-      Assert.assertEquals(1, segments.size());
-      Assert.assertEquals(TEST_INTERVAL, segments.get(0).getInterval());
-      Assert.assertEquals(
-          getDefaultCompactionState(segmentGranularity, DEFAULT_QUERY_GRAN, List.of(inputInterval)),
+      Assertions.assertEquals(1, segments.size());
+      Assertions.assertEquals(TEST_INTERVAL, segments.get(0).getInterval());
+      // compact interval is always the SIX_HOUR interval, since the previous compaction has generated a new SIX_HOUR segment, this means the compaction state in the second compaction is different from the first one.
+      Assertions.assertEquals(
+          getDefaultCompactionState(segmentGranularity, DEFAULT_QUERY_GRAN, List.of(TEST_INTERVAL)),
           segments.get(0).getLastCompactionState()
       );
       // use overwrite shard for the second compaction
-      Assert.assertEquals(new NumberedOverwriteShardSpec(
+      Assertions.assertEquals(new NumberedOverwriteShardSpec(
           PartitionIds.NON_ROOT_GEN_START_PARTITION_ID,
           0,
           1,
@@ -436,7 +480,8 @@ public abstract class CompactionTaskRunBase
   @Test
   public void testRunIndexAndCompactAtTheSameTimeForDifferentInterval() throws Exception
   {
-    Assume.assumeTrue("Use 3 hr interval to compact", TEST_INTERVAL.equals(inputInterval));
+    Assumptions.assumeTrue(Granularities.SIX_HOUR.equals(segmentGranularity) && TEST_INTERVAL.equals(inputInterval)
+        && lockGranularity != LockGranularity.SEGMENT, "test with defined segment granularity and interval in this test");
     verifyTaskSuccessRowsAndSchemaMatch(runIndexTask(), TOTAL_TEST_ROWS);
 
     final CompactionTask compactionTask =
@@ -452,7 +497,9 @@ public abstract class CompactionTaskRunBase
     rows.add("2014-01-01T08:00:30Z,b,2\n");
     rows.add("2014-01-01T08:00:30Z,c,3\n");
     final IndexTask indexTask = buildIndexTask(
-        DEFAULT_PARSE_SPEC,
+        DEFAULT_TIMESTAMP_SPEC,
+        DEFAULT_DIMENSIONS_SPEC,
+        DEFAULT_INPUT_FORMAT,
         rows,
         Intervals.of("2014-01-01T06:00:00Z/2014-01-01T12:00:00Z"),
         false
@@ -470,23 +517,24 @@ public abstract class CompactionTaskRunBase
     verifyTaskSuccessRowsAndSchemaMatch(indexResult, 9);
 
     List<DataSegment> segments = new ArrayList<>(indexResult.rhs.getSegments());
-    Assert.assertEquals(6, segments.size());
+    Assertions.assertEquals(6, segments.size());
 
     for (int i = 0; i < 6; i++) {
-      Assert.assertEquals(
+      Assertions.assertEquals(
           Intervals.of("2014-01-01T0%d:00:00/2014-01-01T0%d:00:00", 6 + i / 2, 6 + i / 2 + 1),
           segments.get(i).getInterval()
       );
       if (lockGranularity == LockGranularity.SEGMENT) {
-        Assert.assertEquals(new NumberedShardSpec(i % 2, 0), segments.get(i).getShardSpec());
+        Assertions.assertEquals(new NumberedShardSpec(i % 2, 0), segments.get(i).getShardSpec());
       } else {
-        Assert.assertEquals(new NumberedShardSpec(i % 2, 2), segments.get(i).getShardSpec());
+        Assertions.assertEquals(new NumberedShardSpec(i % 2, 2), segments.get(i).getShardSpec());
       }
     }
 
     Pair<TaskStatus, DataSegmentsWithSchemas> compactionResult = compactionFuture.get();
     verifyTaskSuccessRowsAndSchemaMatch(compactionResult, TOTAL_TEST_ROWS);
     verifyCompactedSegment(
+        compactionTask.getCompactionRunner(),
         List.copyOf(compactionResult.rhs.getSegments()),
         segmentGranularity,
         DEFAULT_QUERY_GRAN,
@@ -497,10 +545,7 @@ public abstract class CompactionTaskRunBase
   @Test
   public void testWithSegmentGranularityMisalignedInterval() throws Exception
   {
-    Assume.assumeTrue(
-        "use Granularities.WEEK segment granularity in this test",
-        Granularities.SIX_HOUR.equals(segmentGranularity)
-    );
+    Assumptions.assumeTrue(Granularities.SIX_HOUR.equals(segmentGranularity), "use Granularities.WEEK segment granularity in this test");
     verifyTaskSuccessRowsAndSchemaMatch(runIndexTask(), TOTAL_TEST_ROWS);
     // Test when inputInterval is less than Granularities.WEEK is not allowed
     final CompactionTask compactionTask1 =
@@ -508,22 +553,19 @@ public abstract class CompactionTaskRunBase
             .ioConfig(new CompactionIOConfig(new CompactionIntervalSpec(inputInterval, null), false, true))
             .build();
 
-    final IllegalArgumentException e = Assert.assertThrows(
+    final IllegalArgumentException e = Assertions.assertThrows(
         IllegalArgumentException.class,
         () -> runTask(compactionTask1)
     );
-    Assert.assertTrue(e.getMessage().contains(inputInterval.toString()));
-    Assert.assertTrue(e.getMessage().contains("is not aligned with segmentGranularity"));
-    Assert.assertTrue(e.getMessage().contains(Granularities.WEEK.toString()));
+    Assertions.assertTrue(e.getMessage().contains(inputInterval.toString()));
+    Assertions.assertTrue(e.getMessage().contains("is not aligned with segmentGranularity"));
+    Assertions.assertTrue(e.getMessage().contains(Granularities.WEEK.toString()));
   }
 
   @Test
   public void testWithSegmentGranularityMisalignedIntervalAllowed() throws Exception
   {
-    Assume.assumeTrue(
-        "use Granularities.WEEK segment granularity in this test",
-        Granularities.SIX_HOUR.equals(segmentGranularity)
-    );
+    Assumptions.assumeTrue(Granularities.SIX_HOUR.equals(segmentGranularity), "use Granularities.WEEK segment granularity in this test");
     verifyTaskSuccessRowsAndSchemaMatch(runIndexTask(), TOTAL_TEST_ROWS);
     // Test when inputInterval is less than Granularities.WEEK is allowed
     final CompactionTask compactionTask1 =
@@ -535,15 +577,11 @@ public abstract class CompactionTaskRunBase
     verifyTaskSuccessRowsAndSchemaMatch(resultPair, TOTAL_TEST_ROWS);
 
     List<DataSegment> segments = new ArrayList<>(resultPair.rhs.getSegments());
-    Assert.assertEquals(1, segments.size());
-    Assert.assertEquals(Intervals.of("2013-12-30/2014-01-06"), segments.get(0).getInterval());
-    Assert.assertEquals(new NumberedShardSpec(0, 1), segments.get(0).getShardSpec());
-    Assert.assertEquals(
-        getDefaultCompactionState(
-            Granularities.WEEK,
-            DEFAULT_QUERY_GRAN,
-            List.of(inputInterval)
-        ),
+    Assertions.assertEquals(1, segments.size());
+    Assertions.assertEquals(Intervals.of("2013-12-30/2014-01-06"), segments.get(0).getInterval());
+    Assertions.assertEquals(new NumberedShardSpec(0, 1), segments.get(0).getShardSpec());
+    Assertions.assertEquals(
+        getDefaultCompactionState(Granularities.WEEK, DEFAULT_QUERY_GRAN, List.of(TEST_ACTUAL_INTERVAL)),
         segments.get(0).getLastCompactionState()
     );
   }
@@ -551,11 +589,8 @@ public abstract class CompactionTaskRunBase
   @Test
   public void testWithSegmentGranularityMisalignedIntervalAllowed2() throws Exception
   {
-    Assume.assumeTrue(
-        "test with defined segment granularity and interval in this test",
-        Granularities.SIX_HOUR.equals(segmentGranularity) && TEST_INTERVAL.equals(inputInterval)
-        && lockGranularity != LockGranularity.SEGMENT
-    );
+    Assumptions.assumeTrue(Granularities.SIX_HOUR.equals(segmentGranularity) && TEST_INTERVAL.equals(inputInterval)
+        && lockGranularity != LockGranularity.SEGMENT, "test with defined segment granularity and interval in this test");
     verifyTaskSuccessRowsAndSchemaMatch(runIndexTask(), TOTAL_TEST_ROWS);
     // Test when inputInterval doesn't align with segment granularity
     final Interval interval = Intervals.of("2014-01-01T00:30:00Z/2014-01-01T01:30:00Z");
@@ -568,10 +603,10 @@ public abstract class CompactionTaskRunBase
     verifyTaskSuccessRowsAndSchemaMatch(resultPair, 3);
 
     List<DataSegment> segments = new ArrayList<>(resultPair.rhs.getSegments());
-    Assert.assertEquals(1, segments.size());
-    Assert.assertEquals(Intervals.of("2014-01-01T01:00:00Z/2014-01-01T02:00:00Z"), segments.get(0).getInterval());
-    Assert.assertEquals(new NumberedShardSpec(0, 1), segments.get(0).getShardSpec());
-    Assert.assertEquals(
+    Assertions.assertEquals(1, segments.size());
+    Assertions.assertEquals(Intervals.of("2014-01-01T01:00:00Z/2014-01-01T02:00:00Z"), segments.get(0).getInterval());
+    Assertions.assertEquals(new NumberedShardSpec(0, 1), segments.get(0).getShardSpec());
+    Assertions.assertEquals(
         getDefaultCompactionState(
             Granularities.HOUR,
             DEFAULT_QUERY_GRAN,
@@ -584,15 +619,12 @@ public abstract class CompactionTaskRunBase
   @Test
   public void testCompactionWithFilterInTransformSpec() throws Exception
   {
-    Assume.assumeTrue(
-        "test with six hour granularity is enough",
-        Granularities.SIX_HOUR.equals(segmentGranularity)
-    );
+    Assumptions.assumeTrue(Granularities.SIX_HOUR.equals(segmentGranularity), "test with six hour granularity is enough");
     verifyTaskSuccessRowsAndSchemaMatch(runIndexTask(), TOTAL_TEST_ROWS);
 
     final CompactionTask compactionTask = compactionTaskBuilder(segmentGranularity)
         .interval(inputInterval, true)
-        .transformSpec(new CompactionTransformSpec(new SelectorDimFilter("dim", "a", null)))
+        .transformSpec(new CompactionTransformSpec(new SelectorDimFilter("dim", "a", null), null))
         .build();
 
     Pair<TaskStatus, DataSegmentsWithSchemas> resultPair = runTask(compactionTask);
@@ -600,46 +632,51 @@ public abstract class CompactionTaskRunBase
 
     List<DataSegment> segments = new ArrayList<>(resultPair.rhs.getSegments());
 
-    Assert.assertEquals(1, segments.size());
-    Assert.assertEquals(TEST_INTERVAL, segments.get(0).getInterval());
-    Assert.assertEquals(new NumberedShardSpec(0, 1), segments.get(0).getShardSpec());
+    Assertions.assertEquals(1, segments.size());
+    Assertions.assertEquals(TEST_INTERVAL, segments.get(0).getInterval());
+    Assertions.assertEquals(new NumberedShardSpec(0, 1), segments.get(0).getShardSpec());
 
+    // native runner use interval from actual seen segments, while msq runner use interval from input
+    Interval compactInterval = compactionTask.getCompactionRunner() instanceof NativeCompactionRunner
+                               ? TEST_ACTUAL_INTERVAL
+                               : inputInterval;
     CompactionState expectedCompactionState = getDefaultCompactionState(
         segmentGranularity,
         DEFAULT_QUERY_GRAN,
-        List.of(inputInterval)
-    ).toBuilder().transformSpec(new CompactionTransformSpec(new SelectorDimFilter("dim", "a", null))).build();
-    Assert.assertEquals(expectedCompactionState, segments.get(0).getLastCompactionState());
+        List.of(compactInterval)
+    ).toBuilder().transformSpec(new CompactionTransformSpec(new SelectorDimFilter("dim", "a", null), null)).build();
+    Assertions.assertEquals(expectedCompactionState, segments.get(0).getLastCompactionState());
   }
 
   public void validateCompactionState(CompactionState expected, CompactionState actual)
   {
-    Assert.assertEquals(new CompactionState(
-        expected.getPartitionsSpec(),
-        expected.getDimensionsSpec().toBuilder().setDimensionExclusions(List.of()).build(),
-        expected.getMetricsSpec(),
-        null,
-        expected.getIndexSpec(),
-        expected.getGranularitySpec().withIntervals(List.of()),
-        expected.getProjections()
-    ), new CompactionState(
-        actual.getPartitionsSpec(),
-        actual.getDimensionsSpec().toBuilder().setDimensionExclusions(List.of()).build(),
-        actual.getMetricsSpec(),
-        null,
-        actual.getIndexSpec(),
-        actual.getGranularitySpec().withIntervals(List.of()),
-        actual.getProjections()
-    ));
+    Assertions.assertEquals(
+        CompactionState.builder()
+                       .partitionsSpec(expected.getPartitionsSpec())
+                       .dimensionsSpec(expected.getDimensionsSpec()
+                                               .toBuilder()
+                                               .setDimensionExclusions(List.of())
+                                               .build())
+                       .metricsSpec(expected.getMetricsSpec())
+                       .indexSpec(expected.getIndexSpec())
+                       .granularitySpec(expected.getGranularitySpec().withIntervals(List.of()))
+                       .projections(expected.getProjections())
+                       .build(),
+        CompactionState.builder()
+                       .partitionsSpec(actual.getPartitionsSpec())
+                       .dimensionsSpec(actual.getDimensionsSpec().toBuilder().setDimensionExclusions(List.of()).build())
+                       .metricsSpec(actual.getMetricsSpec())
+                       .indexSpec(actual.getIndexSpec())
+                       .granularitySpec(actual.getGranularitySpec().withIntervals(List.of()))
+                       .projections(actual.getProjections())
+                       .build()
+    );
   }
 
   @Test
   public void testCompactionWithNewMetricInMetricsSpec() throws Exception
   {
-    Assume.assumeTrue(
-        "test with six hour granularity is enough",
-        Granularities.SIX_HOUR.equals(segmentGranularity)
-    );
+    Assumptions.assumeTrue(Granularities.SIX_HOUR.equals(segmentGranularity), "test with six hour granularity is enough");
     verifyTaskSuccessRowsAndSchemaMatch(runIndexTask(), TOTAL_TEST_ROWS);
 
     final CompactionTask compactionTask =
@@ -655,19 +692,19 @@ public abstract class CompactionTaskRunBase
     verifyTaskSuccessRowsAndSchemaMatch(resultPair, TOTAL_TEST_ROWS);
 
     List<DataSegment> segments = new ArrayList<>(resultPair.rhs.getSegments());
-    Assert.assertEquals(1, segments.size());
+    Assertions.assertEquals(1, segments.size());
 
-    Assert.assertEquals(TEST_INTERVAL, segments.get(0).getInterval());
-    Assert.assertEquals(new NumberedShardSpec(0, 1), segments.get(0).getShardSpec());
+    Assertions.assertEquals(TEST_INTERVAL, segments.get(0).getInterval());
+    Assertions.assertEquals(new NumberedShardSpec(0, 1), segments.get(0).getShardSpec());
 
     AggregatorFactory expectedCountMetric = new CountAggregatorFactory("cnt");
     AggregatorFactory expectedLongSumMetric = new LongSumAggregatorFactory("val", "val");
     CompactionState expectedCompactionState =
-        getDefaultCompactionState(segmentGranularity, Granularities.MINUTE, List.of(inputInterval))
+        getDefaultCompactionState(segmentGranularity, Granularities.MINUTE, List.of(TEST_ACTUAL_INTERVAL))
             .toBuilder()
             .metricsSpec(List.of(expectedCountMetric, expectedLongSumMetric))
             .build();
-    Assert.assertEquals(expectedCompactionState, segments.get(0).getLastCompactionState());
+    Assertions.assertEquals(expectedCompactionState, segments.get(0).getLastCompactionState());
   }
 
   @Test
@@ -685,16 +722,19 @@ public abstract class CompactionTaskRunBase
     verifyTaskSuccessRowsAndSchemaMatch(resultPair, TOTAL_TEST_ROWS);
 
     List<DataSegment> segments = new ArrayList<>(resultPair.rhs.getSegments());
-    verifyCompactedSegment(segments, segmentGranularity, Granularities.SECOND, false);
+    verifyCompactedSegment(
+        compactionTask1.getCompactionRunner(),
+        segments,
+        segmentGranularity,
+        Granularities.SECOND,
+        false
+    );
   }
 
   @Test
   public void testWithGranularitySpecNonNullQueryGranularityAndCoarseSegmentGranularity() throws Exception
   {
-    Assume.assumeTrue(
-        "test with defined segment granularity and interval in this test",
-        Granularities.SIX_HOUR.equals(segmentGranularity) && TEST_INTERVAL.equals(inputInterval)
-    );
+    Assumptions.assumeTrue(Granularities.SIX_HOUR.equals(segmentGranularity) && TEST_INTERVAL.equals(inputInterval), "test with defined segment granularity and interval in this test");
     verifyTaskSuccessRowsAndSchemaMatch(runIndexTask(), TOTAL_TEST_ROWS);
 
     // day segmentGranularity and day queryGranularity
@@ -707,22 +747,23 @@ public abstract class CompactionTaskRunBase
     verifyTaskSuccessRowsAndSchemaMatch(resultPair, TOTAL_TEST_ROWS);
 
     List<DataSegment> segments = List.copyOf(resultPair.rhs.getSegments());
-    Assert.assertEquals(1, segments.size());
-    Assert.assertEquals(TEST_INTERVAL_DAY, segments.get(0).getInterval());
-    Assert.assertEquals(
-        getDefaultCompactionState(Granularities.DAY, Granularities.DAY, List.of(TEST_INTERVAL_DAY)),
+    Assertions.assertEquals(1, segments.size());
+    Assertions.assertEquals(TEST_INTERVAL_DAY, segments.get(0).getInterval());
+    // native runner use interval from actual seen segments, while msq runner use interval from input
+    Interval interval = compactionTask1.getCompactionRunner() instanceof NativeCompactionRunner
+                        ? TEST_ACTUAL_INTERVAL
+                        : TEST_INTERVAL_DAY;
+    Assertions.assertEquals(
+        getDefaultCompactionState(Granularities.DAY, Granularities.DAY, List.of(interval)),
         segments.get(0).getLastCompactionState()
     );
-    Assert.assertEquals(new NumberedShardSpec(0, 1), segments.get(0).getShardSpec());
+    Assertions.assertEquals(new NumberedShardSpec(0, 1), segments.get(0).getShardSpec());
   }
 
   @Test
   public void testCompactThenAppend() throws Exception
   {
-    Assume.assumeTrue(
-        "test three hour segment granularity is enough",
-        Granularities.SIX_HOUR.equals(segmentGranularity)
-    );
+    Assumptions.assumeTrue(Granularities.SIX_HOUR.equals(segmentGranularity), "test three hour segment granularity is enough");
     verifyTaskSuccessRowsAndSchemaMatch(runIndexTask(), TOTAL_TEST_ROWS);
 
     final CompactionTask compactionTask =
@@ -742,7 +783,7 @@ public abstract class CompactionTaskRunBase
     final Set<DataSegment> usedSegments = new HashSet<>(
         coordinatorClient.fetchUsedSegments(DATA_SOURCE, List.of(Intervals.of("2014-01-01/2014-01-02"))).get());
 
-    Assert.assertEquals(expectedSegments, usedSegments);
+    Assertions.assertEquals(expectedSegments, usedSegments);
   }
 
   @Test
@@ -750,11 +791,8 @@ public abstract class CompactionTaskRunBase
       throws Exception
   {
     // This test fails with segment lock because of the bug reported in https://github.com/apache/druid/issues/10911.
-    Assume.assumeTrue(lockGranularity != LockGranularity.SEGMENT);
-    Assume.assumeTrue(
-        "test with defined segment granularity and interval in this test",
-        Granularities.SIX_HOUR.equals(segmentGranularity) && TEST_INTERVAL.equals(inputInterval)
-    );
+    Assumptions.assumeTrue(lockGranularity != LockGranularity.SEGMENT);
+    Assumptions.assumeTrue(Granularities.SIX_HOUR.equals(segmentGranularity) && TEST_INTERVAL.equals(inputInterval), "test with defined segment granularity and interval in this test");
 
     // The following task creates (several, more than three, last time I checked, six) HOUR segments with intervals of
     // - 2014-01-01T00:00:00/2014-01-01T01:00:00
@@ -775,7 +813,7 @@ public abstract class CompactionTaskRunBase
     // maxRowsPerSegment is set to 2 inside the runIndexTask methods
     Pair<TaskStatus, DataSegmentsWithSchemas> result = runIndexTask();
     verifyTaskSuccessRowsAndSchemaMatch(result, TOTAL_TEST_ROWS);
-    Assert.assertEquals(6, result.rhs.getSegments().size());
+    Assertions.assertEquals(6, result.rhs.getSegments().size());
 
     // Setup partial compaction:
     // Change the granularity from HOUR to MINUTE through compaction for hour 01, there are three rows in the compaction interval,
@@ -809,20 +847,20 @@ public abstract class CompactionTaskRunBase
             List.of(Intervals.of("2014-01-01T02:00:00/2014-01-01T03:00:00"))
         ).get());
     expectedSegments.addAll(partialCompactionResult.rhs.getSegments());
-    Assert.assertEquals(64, expectedSegments.size());
+    Assertions.assertEquals(64, expectedSegments.size());
 
     // New segments that were compacted are expected. However, old segments of the compacted interval should be
     // overshadowed by the new tombstones (59) being created for all minutes other than 01:01
     final Set<DataSegment> segmentsAfterPartialCompaction = new HashSet<>(
         coordinatorClient.fetchUsedSegments(DATA_SOURCE, List.of(Intervals.of("2014-01-01/2014-01-02"))).get());
-    Assert.assertEquals(expectedSegments, segmentsAfterPartialCompaction);
+    Assertions.assertEquals(expectedSegments, segmentsAfterPartialCompaction);
     final List<DataSegment> realSegmentsAfterPartialCompaction =
         segmentsAfterPartialCompaction.stream().filter(s -> !s.isTombstone()).collect(Collectors.toList());
     final List<DataSegment> tombstonesAfterPartialCompaction =
         segmentsAfterPartialCompaction.stream().filter(s -> s.isTombstone()).collect(Collectors.toList());
-    Assert.assertEquals(59, tombstonesAfterPartialCompaction.size());
-    Assert.assertEquals(5, realSegmentsAfterPartialCompaction.size());
-    Assert.assertEquals(64, segmentsAfterPartialCompaction.size());
+    Assertions.assertEquals(59, tombstonesAfterPartialCompaction.size());
+    Assertions.assertEquals(5, realSegmentsAfterPartialCompaction.size());
+    Assertions.assertEquals(64, segmentsAfterPartialCompaction.size());
 
     // Setup full compaction:
     // Full Compaction with null segmentGranularity meaning that the original segmentGranularity is preserved.
@@ -849,25 +887,25 @@ public abstract class CompactionTaskRunBase
     segmentsAfterFullCompaction.sort(
         (s1, s2) -> Comparators.intervalsByStartThenEnd().compare(s1.getInterval(), s2.getInterval())
     );
-    Assert.assertEquals(62, segmentsAfterFullCompaction.size());
+    Assertions.assertEquals(62, segmentsAfterFullCompaction.size());
 
     final List<DataSegment> tombstonesAfterFullCompaction =
         segmentsAfterFullCompaction.stream().filter(s -> s.isTombstone()).collect(Collectors.toList());
-    Assert.assertEquals(59, tombstonesAfterFullCompaction.size());
+    Assertions.assertEquals(59, tombstonesAfterFullCompaction.size());
 
     final List<DataSegment> realSegmentsAfterFullCompaction =
         segmentsAfterFullCompaction.stream().filter(s -> !s.isTombstone()).collect(Collectors.toList());
-    Assert.assertEquals(3, realSegmentsAfterFullCompaction.size());
+    Assertions.assertEquals(3, realSegmentsAfterFullCompaction.size());
 
-    Assert.assertEquals(
+    Assertions.assertEquals(
         Intervals.of("2014-01-01T00:00:00.000Z/2014-01-01T01:00:00.000Z"),
         realSegmentsAfterFullCompaction.get(0).getInterval()
     );
-    Assert.assertEquals(
+    Assertions.assertEquals(
         Intervals.of("2014-01-01T01:00:00.000Z/2014-01-01T01:01:00.000Z"),
         realSegmentsAfterFullCompaction.get(1).getInterval()
     );
-    Assert.assertEquals(
+    Assertions.assertEquals(
         Intervals.of("2014-01-01T02:00:00.000Z/2014-01-01T03:00:00.000Z"),
         realSegmentsAfterFullCompaction.get(2).getInterval()
     );
@@ -877,11 +915,8 @@ public abstract class CompactionTaskRunBase
   public void testCompactDatasourceOverIntervalWithOnlyTombstones() throws Exception
   {
     // This test fails with segment lock because of the bug reported in https://github.com/apache/druid/issues/10911.
-    Assume.assumeTrue(lockGranularity != LockGranularity.SEGMENT);
-    Assume.assumeTrue(
-        "test with defined segment granularity and interval in this test",
-        Granularities.SIX_HOUR.equals(segmentGranularity) && TEST_INTERVAL.equals(inputInterval)
-    );
+    Assumptions.assumeTrue(lockGranularity != LockGranularity.SEGMENT);
+    Assumptions.assumeTrue(Granularities.SIX_HOUR.equals(segmentGranularity) && TEST_INTERVAL.equals(inputInterval), "test with defined segment granularity and interval in this test");
 
     // The following task creates (several, more than three, last time I checked, six) HOUR segments with intervals of
     // - 2014-01-01T00:00:00/2014-01-01T01:00:00
@@ -902,7 +937,7 @@ public abstract class CompactionTaskRunBase
     // maxRowsPerSegment is set to 2 inside the runIndexTask methods
     Pair<TaskStatus, DataSegmentsWithSchemas> result = runIndexTask();
     verifyTaskSuccessRowsAndSchemaMatch(result, TOTAL_TEST_ROWS);
-    Assert.assertEquals(6, result.rhs.getSegments().size());
+    Assertions.assertEquals(6, result.rhs.getSegments().size());
 
     // Setup partial interval compaction:
     // Change the granularity from HOUR to MINUTE through compaction for hour 01, there are three rows in the compaction
@@ -937,20 +972,20 @@ public abstract class CompactionTaskRunBase
             List.of(Intervals.of("2014-01-01T02:00:00/2014-01-01T03:00:00"))
         ).get());
     expectedSegments.addAll(partialCompactionResult.rhs.getSegments());
-    Assert.assertEquals(64, expectedSegments.size());
+    Assertions.assertEquals(64, expectedSegments.size());
 
     // New segments that were compacted are expected. However, old segments of the compacted interval should be
     // overshadowed by the new tombstones (59) being created for all minutes other than 01:01
     final Set<DataSegment> segmentsAfterPartialCompaction = new HashSet<>(
         coordinatorClient.fetchUsedSegments(DATA_SOURCE, List.of(TEST_INTERVAL)).get());
-    Assert.assertEquals(expectedSegments, segmentsAfterPartialCompaction);
+    Assertions.assertEquals(expectedSegments, segmentsAfterPartialCompaction);
     final List<DataSegment> realSegmentsAfterPartialCompaction =
         segmentsAfterPartialCompaction.stream().filter(s -> !s.isTombstone()).collect(Collectors.toList());
     final List<DataSegment> tombstonesAfterPartialCompaction =
         segmentsAfterPartialCompaction.stream().filter(s -> s.isTombstone()).collect(Collectors.toList());
-    Assert.assertEquals(59, tombstonesAfterPartialCompaction.size());
-    Assert.assertEquals(5, realSegmentsAfterPartialCompaction.size());
-    Assert.assertEquals(64, segmentsAfterPartialCompaction.size());
+    Assertions.assertEquals(59, tombstonesAfterPartialCompaction.size());
+    Assertions.assertEquals(5, realSegmentsAfterPartialCompaction.size());
+    Assertions.assertEquals(64, segmentsAfterPartialCompaction.size());
 
     // Now setup compaction over an interval with only tombstones, keeping same, minute granularity
     final CompactionTask compactionTaskOverOnlyTombstones =
@@ -966,8 +1001,8 @@ public abstract class CompactionTaskRunBase
 
     // compaction should not fail but since it is over the same granularity it should leave
     // the tombstones unchanged
-    Assert.assertEquals(59, resultOverOnlyTombstones.rhs.getSegments().size());
-    resultOverOnlyTombstones.rhs.getSegments().forEach(t -> Assert.assertTrue(t.isTombstone()));
+    Assertions.assertEquals(59, resultOverOnlyTombstones.rhs.getSegments().size());
+    resultOverOnlyTombstones.rhs.getSegments().forEach(t -> Assertions.assertTrue(t.isTombstone()));
   }
 
   @Test
@@ -975,16 +1010,13 @@ public abstract class CompactionTaskRunBase
       throws Exception
   {
     // This test fails with segment lock because of the bug reported in https://github.com/apache/druid/issues/10911.
-    Assume.assumeTrue(lockGranularity != LockGranularity.SEGMENT);
-    Assume.assumeTrue(
-        "test with defined segment granularity and interval in this test",
-        Granularities.SIX_HOUR.equals(segmentGranularity) && TEST_INTERVAL.equals(inputInterval)
-    );
+    Assumptions.assumeTrue(lockGranularity != LockGranularity.SEGMENT);
+    Assumptions.assumeTrue(Granularities.SIX_HOUR.equals(segmentGranularity) && TEST_INTERVAL.equals(inputInterval), "test with defined segment granularity and interval in this test");
     verifyTaskSuccessRowsAndSchemaMatch(runIndexTask(), TOTAL_TEST_ROWS);
 
     final Set<DataSegment> expectedSegments = new HashSet<>(
         coordinatorClient.fetchUsedSegments(DATA_SOURCE, List.of(Intervals.of("2014-01-01/2014-01-02"))).get());
-    Assert.assertEquals(6, expectedSegments.size());
+    Assertions.assertEquals(6, expectedSegments.size());
 
     final Interval partialInterval = Intervals.of("2014-01-01T01:00:00/2014-01-01T02:00:00");
     final CompactionTask partialCompactionTask = compactionTaskBuilder(Granularities.MINUTE)
@@ -996,13 +1028,13 @@ public abstract class CompactionTaskRunBase
     verifyTaskSuccessRowsAndSchemaMatch(partialCompactionResult, 3);
     // All segments in the previous expectedSegments should still appear as they have larger segment granularity.
     expectedSegments.addAll(partialCompactionResult.rhs.getSegments());
-    Assert.assertEquals(7, expectedSegments.size());
+    Assertions.assertEquals(7, expectedSegments.size());
 
     final Set<DataSegment> segmentsAfterPartialCompaction = new HashSet<>(
         coordinatorClient.fetchUsedSegments(DATA_SOURCE, List.of(TEST_INTERVAL)).get());
-    Assert.assertEquals(expectedSegments, segmentsAfterPartialCompaction);
+    Assertions.assertEquals(expectedSegments, segmentsAfterPartialCompaction);
     // the lower version of hour01 segment is visible, but the 3 rows is not because hour01minite00 is overshadowed by a higher version segment.
-    Assert.assertEquals(13, expectedSegments.stream().mapToInt(DataSegment::getTotalRows).sum());
+    Assertions.assertEquals(13, expectedSegments.stream().mapToInt(DataSegment::getTotalRows).sum());
 
     final CompactionTask fullCompactionTask = compactionTaskBuilder(Granularities.HOUR)
         // Set dropExisting to false
@@ -1018,9 +1050,9 @@ public abstract class CompactionTaskRunBase
         (s1, s2) -> Comparators.intervalsByStartThenEnd().compare(s1.getInterval(), s2.getInterval())
     );
 
-    Assert.assertEquals(3, segmentsAfterFullCompaction.size());
+    Assertions.assertEquals(3, segmentsAfterFullCompaction.size());
     for (int i = 0; i < segmentsAfterFullCompaction.size(); i++) {
-      Assert.assertEquals(
+      Assertions.assertEquals(
           Intervals.of(StringUtils.format("2014-01-01T%02d/2014-01-01T%02d", i, i + 1)),
           segmentsAfterFullCompaction.get(i).getInterval()
       );
@@ -1051,14 +1083,14 @@ public abstract class CompactionTaskRunBase
 
     verifyTaskSuccessRowsAndSchemaMatch(indexFuture.get(), TOTAL_TEST_ROWS);
     List<DataSegment> segments = new ArrayList<>(indexFuture.get().rhs.getSegments());
-    Assert.assertEquals(6, segments.size());
+    Assertions.assertEquals(6, segments.size());
     for (int i = 0; i < 6; i++) {
-      Assert.assertEquals(
+      Assertions.assertEquals(
           Intervals.of("2014-01-01T0%d:00:00/2014-01-01T0%d:00:00", i / 2, i / 2 + 1),
           segments.get(i).getInterval()
       );
       if (lockGranularity == LockGranularity.SEGMENT) {
-        Assert.assertEquals(
+        Assertions.assertEquals(
             new NumberedOverwriteShardSpec(
                 PartitionIds.NON_ROOT_GEN_START_PARTITION_ID + i % 2,
                 0,
@@ -1069,12 +1101,12 @@ public abstract class CompactionTaskRunBase
             segments.get(i).getShardSpec()
         );
       } else {
-        Assert.assertEquals(new NumberedShardSpec(i % 2, 2), segments.get(i).getShardSpec());
+        Assertions.assertEquals(new NumberedShardSpec(i % 2, 2), segments.get(i).getShardSpec());
       }
     }
 
-    Exception e = Assert.assertThrows(Exception.class, () -> compactionFuture.get());
-    Assert.assertTrue(e.getMessage().contains("not ready"));
+    Exception e = Assertions.assertThrows(Exception.class, () -> compactionFuture.get());
+    Assertions.assertTrue(e.getMessage().contains("not ready"));
   }
 
   @Test
@@ -1108,15 +1140,15 @@ public abstract class CompactionTaskRunBase
 
     verifyTaskSuccessRowsAndSchemaMatch(indexFuture.get(), TOTAL_TEST_ROWS);
     List<DataSegment> segments = new ArrayList<>(indexFuture.get().rhs.getSegments());
-    Assert.assertEquals(6, segments.size());
+    Assertions.assertEquals(6, segments.size());
 
     for (int i = 0; i < 6; i++) {
-      Assert.assertEquals(
+      Assertions.assertEquals(
           Intervals.of("2014-01-01T0%d:00:00/2014-01-01T0%d:00:00", i / 2, i / 2 + 1),
           segments.get(i).getInterval()
       );
       if (lockGranularity == LockGranularity.SEGMENT) {
-        Assert.assertEquals(
+        Assertions.assertEquals(
             new NumberedOverwriteShardSpec(
                 PartitionIds.NON_ROOT_GEN_START_PARTITION_ID + i % 2,
                 0,
@@ -1127,21 +1159,18 @@ public abstract class CompactionTaskRunBase
             segments.get(i).getShardSpec()
         );
       } else {
-        Assert.assertEquals(new NumberedShardSpec(i % 2, 2), segments.get(i).getShardSpec());
+        Assertions.assertEquals(new NumberedShardSpec(i % 2, 2), segments.get(i).getShardSpec());
       }
     }
 
     final Pair<TaskStatus, DataSegmentsWithSchemas> compactionResult = compactionFuture.get();
-    Assert.assertEquals(TaskState.FAILED, compactionResult.lhs.getStatusCode());
+    Assertions.assertEquals(TaskState.FAILED, compactionResult.lhs.getStatusCode());
   }
 
   @Test
   public void testRunWithSpatialDimensions() throws Exception
   {
-    Assume.assumeTrue(
-        "test with defined segment granularity and interval in this test",
-        Granularities.SIX_HOUR.equals(segmentGranularity) && TEST_INTERVAL.equals(inputInterval)
-    );
+    Assumptions.assumeTrue(Granularities.SIX_HOUR.equals(segmentGranularity) && TEST_INTERVAL.equals(inputInterval), "test with defined segment granularity and interval in this test");
     final List<String> spatialrows = ImmutableList.of(
         "2014-01-01T00:00:10Z,a,10,100,1\n",
         "2014-01-01T00:00:10Z,b,20,110,2\n",
@@ -1150,22 +1179,19 @@ public abstract class CompactionTaskRunBase
         "2014-01-01T01:00:20Z,b,20,110,2\n",
         "2014-01-01T01:00:20Z,c,30,120,3\n"
     );
-    final ParseSpec spatialSpec = new CSVParseSpec(
-        new TimestampSpec("ts", "auto", null),
-        DimensionsSpec.builder()
-                      .setDimensions(Arrays.asList(
-                          new StringDimensionSchema("ts"),
-                          new StringDimensionSchema("dim"),
-                          new NewSpatialDimensionSchema("spatial", Arrays.asList("x", "y"))
-                      ))
-                      .build(),
-        "|",
-        Arrays.asList("ts", "dim", "x", "y", "val"),
-        false,
-        0
+    final TimestampSpec spatialTimestampSpec = new TimestampSpec("ts", "auto", null);
+    final DimensionsSpec spatialDimensionsSpec = DimensionsSpec.builder()
+        .setDimensions(Arrays.asList(
+            new StringDimensionSchema("ts"),
+            new StringDimensionSchema("dim"),
+            new NewSpatialDimensionSchema("spatial", Arrays.asList("x", "y"))
+        ))
+        .build();
+    final InputFormat spatialInputFormat = new CsvInputFormat(
+        Arrays.asList("ts", "dim", "x", "y", "val"), "|", null, false, 0, null
     );
     Pair<TaskStatus, DataSegmentsWithSchemas> indexTaskResult = runTask(
-        buildIndexTask(spatialSpec, spatialrows, Intervals.of("2014-01-01T00:00:00Z/2014-01-01T02:00:00Z"), false),
+        buildIndexTask(spatialTimestampSpec, spatialDimensionsSpec, spatialInputFormat, spatialrows, Intervals.of("2014-01-01T00:00:00Z/2014-01-01T02:00:00Z"), false),
         null,
         null
     );
@@ -1178,13 +1204,17 @@ public abstract class CompactionTaskRunBase
     verifyTaskSuccessRowsAndSchemaMatch(resultPair, 6);
 
     final List<DataSegment> segments = new ArrayList<>(resultPair.rhs.getSegments());
-    Assert.assertEquals(1, segments.size());
+    Assertions.assertEquals(1, segments.size());
 
-    Assert.assertEquals(TEST_INTERVAL, segments.get(0).getInterval());
+    Assertions.assertEquals(TEST_INTERVAL, segments.get(0).getInterval());
+    // native runner use interval from actual seen segments, while msq runner use interval from input
+    Interval compactInterval = compactionTask.getCompactionRunner() instanceof NativeCompactionRunner
+                               ? Intervals.of("2014-01-01T00:00:00Z/2014-01-01T02:00:00Z")
+                               : inputInterval;
     CompactionState defaultCompactionState = getDefaultCompactionState(
         Granularities.SIX_HOUR,
         Granularities.MINUTE,
-        List.of(TEST_INTERVAL)
+        List.of(compactInterval)
     );
     CompactionState newCompactionState =
         defaultCompactionState.toBuilder().dimensionsSpec(
@@ -1196,11 +1226,16 @@ public abstract class CompactionTaskRunBase
                                       new NewSpatialDimensionSchema("spatial", Collections.singletonList("spatial"))
                                   ))
                                   .build()).build();
-    Assert.assertEquals(newCompactionState, segments.get(0).getLastCompactionState());
-    Assert.assertEquals(new NumberedShardSpec(0, 1), segments.get(0).getShardSpec());
+    Assertions.assertEquals(newCompactionState, segments.get(0).getLastCompactionState());
+    Assertions.assertEquals(new NumberedShardSpec(0, 1), segments.get(0).getShardSpec());
 
     final File cacheDir = temporaryFolder.newFolder();
-    final SegmentCacheManager segmentCacheManager = segmentCacheManagerFactory.manufacturate(cacheDir, false);
+    final SegmentCacheManager segmentCacheManager = segmentCacheManagerFactory.manufacturate(
+        cacheDir,
+        null,
+        false,
+        false
+    );
 
     List<String> rowsFromSegment = new ArrayList<>();
     for (DataSegment segment : segments) {
@@ -1213,10 +1248,10 @@ public abstract class CompactionTaskRunBase
       );
       try (final CursorHolder cursorHolder = windowed.getCursorFactory().makeCursorHolder(CursorBuildSpec.FULL_SCAN)) {
         final Cursor cursor = cursorHolder.asCursor();
-        Assert.assertNotNull(cursor);
+        Assertions.assertNotNull(cursor);
         cursor.reset();
         final ColumnSelectorFactory factory = cursor.getColumnSelectorFactory();
-        Assert.assertTrue(factory.getColumnCapabilities("spatial").hasSpatialIndexes());
+        Assertions.assertTrue(factory.getColumnCapabilities("spatial").hasSpatialIndexes());
         while (!cursor.isDone()) {
           final ColumnValueSelector<?> selector1 = factory.makeColumnValueSelector("ts");
           final DimensionSelector selector2 = factory.makeDimensionSelector(new DefaultDimensionSpec("dim", "dim"));
@@ -1238,16 +1273,13 @@ public abstract class CompactionTaskRunBase
         }
       }
     }
-    Assert.assertEquals(spatialrows, rowsFromSegment);
+    Assertions.assertEquals(spatialrows, rowsFromSegment);
   }
 
   @Test
   public void testRunWithAutoCastDimensions() throws Exception
   {
-    Assume.assumeTrue(
-        "test with defined segment granularity and interval in this test",
-        Granularities.SIX_HOUR.equals(segmentGranularity) && TEST_INTERVAL.equals(inputInterval)
-    );
+    Assumptions.assumeTrue(Granularities.SIX_HOUR.equals(segmentGranularity) && TEST_INTERVAL.equals(inputInterval), "test with defined segment granularity and interval in this test");
     final List<String> rows = ImmutableList.of(
         "2014-01-01T00:00:10Z,a,10,100,1\n",
         "2014-01-01T00:00:10Z,b,20,110,2\n",
@@ -1256,23 +1288,22 @@ public abstract class CompactionTaskRunBase
         "2014-01-01T01:00:20Z,b,20,110,2\n",
         "2014-01-01T01:00:20Z,c,30,120,3\n"
     );
-    final ParseSpec spec = new CSVParseSpec(
-        new TimestampSpec("ts", "auto", null),
-        DimensionsSpec.builder()
-                      .setDimensions(Arrays.asList(
-                          new AutoTypeColumnSchema("ts", ColumnType.STRING, null),
-                          AutoTypeColumnSchema.of("dim"),
-                          new AutoTypeColumnSchema("x", ColumnType.LONG, null),
-                          new AutoTypeColumnSchema("y", ColumnType.LONG, null)
-                      ))
-                      .build(),
-        "|",
-        Arrays.asList("ts", "dim", "x", "y", "val"),
-        false,
-        0
+    final TimestampSpec specTimestampSpec = new TimestampSpec("ts", "auto", null);
+    final DimensionsSpec specDimensionsSpec = DimensionsSpec.builder()
+        .setDimensions(Arrays.asList(
+            new AutoTypeColumnSchema("ts", ColumnType.STRING, null),
+            AutoTypeColumnSchema.of("dim"),
+            new AutoTypeColumnSchema("x", ColumnType.LONG, null),
+            new AutoTypeColumnSchema("y", ColumnType.LONG, null)
+        ))
+        .build();
+    final InputFormat specInputFormat = new CsvInputFormat(
+        Arrays.asList("ts", "dim", "x", "y", "val"), "|", null, false, 0, null
     );
     Pair<TaskStatus, DataSegmentsWithSchemas> indexTaskResult = runTask(buildIndexTask(
-        spec,
+        specTimestampSpec,
+        specDimensionsSpec,
+        specInputFormat,
         rows,
         Intervals.of("2014-01-01T00:00:00Z/2014-01-01T02:00:00Z"),
         false
@@ -1286,16 +1317,20 @@ public abstract class CompactionTaskRunBase
     verifyTaskSuccessRowsAndSchemaMatch(resultPair, 6);
 
     final List<DataSegment> segments = new ArrayList<>(resultPair.rhs.getSegments());
-    Assert.assertEquals(1, segments.size());
-    Assert.assertEquals(TEST_INTERVAL, segments.get(0).getInterval());
+    Assertions.assertEquals(1, segments.size());
+    Assertions.assertEquals(TEST_INTERVAL, segments.get(0).getInterval());
 
     final List<String> dimensionExclusions =
         compactionTask.getCompactionRunner() instanceof NativeCompactionRunner ? List.of() : List.of("__time", "val");
+    // native runner use interval from actual seen segments, while msq runner use interval from input
+    final Interval compactInterval = compactionTask.getCompactionRunner() instanceof NativeCompactionRunner
+                                     ? Intervals.of("2014-01-01T00:00:00Z/2014-01-01T02:00:00Z")
+                                     : TEST_INTERVAL;
     CompactionState expectedState =
         getDefaultCompactionState(
             Granularities.SIX_HOUR,
             Granularities.MINUTE,
-            List.of(TEST_INTERVAL)
+            List.of(compactInterval)
         ).toBuilder()
          .dimensionsSpec(
              new DimensionsSpec(Arrays.asList(/* check explicitly specified types are preserved */
@@ -1305,11 +1340,16 @@ public abstract class CompactionTaskRunBase
                  new AutoTypeColumnSchema("y", ColumnType.LONG, DEFAULT_NESTED_SPEC)
              )).toBuilder().setDimensionExclusions(dimensionExclusions).build())
          .build();
-    Assert.assertEquals(expectedState, segments.get(0).getLastCompactionState());
-    Assert.assertEquals(new NumberedShardSpec(0, 1), segments.get(0).getShardSpec());
+    Assertions.assertEquals(expectedState, segments.get(0).getLastCompactionState());
+    Assertions.assertEquals(new NumberedShardSpec(0, 1), segments.get(0).getShardSpec());
 
     final File cacheDir = temporaryFolder.newFolder();
-    final SegmentCacheManager segmentCacheManager = segmentCacheManagerFactory.manufacturate(cacheDir, false);
+    final SegmentCacheManager segmentCacheManager = segmentCacheManagerFactory.manufacturate(
+        cacheDir,
+        null,
+        false,
+        false
+    );
 
     List<String> rowsFromSegment = new ArrayList<>();
     for (DataSegment segment : segments) {
@@ -1322,13 +1362,13 @@ public abstract class CompactionTaskRunBase
       );
       try (final CursorHolder cursorHolder = windowed.getCursorFactory().makeCursorHolder(CursorBuildSpec.FULL_SCAN)) {
         final Cursor cursor = cursorHolder.asCursor();
-        Assert.assertNotNull(cursor);
+        Assertions.assertNotNull(cursor);
         cursor.reset();
         final ColumnSelectorFactory factory = cursor.getColumnSelectorFactory();
-        Assert.assertEquals(ColumnType.STRING, factory.getColumnCapabilities("ts").toColumnType());
-        Assert.assertEquals(ColumnType.STRING, factory.getColumnCapabilities("dim").toColumnType());
-        Assert.assertEquals(ColumnType.LONG, factory.getColumnCapabilities("x").toColumnType());
-        Assert.assertEquals(ColumnType.LONG, factory.getColumnCapabilities("y").toColumnType());
+        Assertions.assertEquals(ColumnType.STRING, factory.getColumnCapabilities("ts").toColumnType());
+        Assertions.assertEquals(ColumnType.STRING, factory.getColumnCapabilities("dim").toColumnType());
+        Assertions.assertEquals(ColumnType.LONG, factory.getColumnCapabilities("x").toColumnType());
+        Assertions.assertEquals(ColumnType.LONG, factory.getColumnCapabilities("y").toColumnType());
         while (!cursor.isDone()) {
           final ColumnValueSelector<?> selector1 = factory.makeColumnValueSelector("ts");
           final DimensionSelector selector2 = factory.makeDimensionSelector(new DefaultDimensionSpec("dim", "dim"));
@@ -1351,16 +1391,13 @@ public abstract class CompactionTaskRunBase
         }
       }
     }
-    Assert.assertEquals(rows, rowsFromSegment);
+    Assertions.assertEquals(rows, rowsFromSegment);
   }
 
   @Test
   public void testRunWithAutoCastDimensionsSortByDimension() throws Exception
   {
-    Assume.assumeTrue(
-        "test with defined segment granularity and interval in this test",
-        Granularities.SIX_HOUR.equals(segmentGranularity) && TEST_INTERVAL.equals(inputInterval)
-    );
+    Assumptions.assumeTrue(Granularities.SIX_HOUR.equals(segmentGranularity) && TEST_INTERVAL.equals(inputInterval), "test with defined segment granularity and interval in this test");
     // Compaction will produce one segment sorted by [x, __time], even though input rows are sorted by __time.
     final List<String> rows = ImmutableList.of(
         "2014-01-01T00:00:10Z,a,10,100,1\n",
@@ -1370,25 +1407,24 @@ public abstract class CompactionTaskRunBase
         "2014-01-01T00:01:20Z,b,20,110,2\n",
         "2014-01-01T00:01:20Z,c,30,120,3\n"
     );
-    final ParseSpec spec = new CSVParseSpec(
-        new TimestampSpec("ts", "auto", null),
-        DimensionsSpec.builder()
-                      .setDimensions(Arrays.asList(
-                          new AutoTypeColumnSchema("x", ColumnType.LONG, null),
-                          new LongDimensionSchema("__time"),
-                          new AutoTypeColumnSchema("ts", ColumnType.STRING, null),
-                          AutoTypeColumnSchema.of("dim"),
-                          new AutoTypeColumnSchema("y", ColumnType.LONG, null)
-                      ))
-                      .setForceSegmentSortByTime(false)
-                      .build(),
-        "|",
-        Arrays.asList("ts", "dim", "x", "y", "val"),
-        false,
-        0
+    final TimestampSpec timestampSpec = new TimestampSpec("ts", "auto", null);
+    final DimensionsSpec dimensionsSpec = DimensionsSpec.builder()
+        .setDimensions(Arrays.asList(
+            new AutoTypeColumnSchema("x", ColumnType.LONG, null),
+            new LongDimensionSchema("__time"),
+            new AutoTypeColumnSchema("ts", ColumnType.STRING, null),
+            AutoTypeColumnSchema.of("dim"),
+            new AutoTypeColumnSchema("y", ColumnType.LONG, null)
+        ))
+        .setForceSegmentSortByTime(false)
+        .build();
+    final InputFormat inputFormat = new CsvInputFormat(
+        Arrays.asList("ts", "dim", "x", "y", "val"), "|", null, false, 0, null
     );
     Pair<TaskStatus, DataSegmentsWithSchemas> indexTaskResult = runTask(buildIndexTask(
-        spec,
+        timestampSpec,
+        dimensionsSpec,
+        inputFormat,
         rows,
         Intervals.of("2014-01-01T00:00:00Z/2014-01-01T02:00:00Z"),
         false
@@ -1402,10 +1438,10 @@ public abstract class CompactionTaskRunBase
     verifyTaskSuccessRowsAndSchemaMatch(resultPair, 6);
 
     final List<DataSegment> segments = new ArrayList<>(resultPair.rhs.getSegments());
-    Assert.assertEquals(1, segments.size());
+    Assertions.assertEquals(1, segments.size());
 
     final DataSegment compactSegment = Iterables.getOnlyElement(segments);
-    Assert.assertEquals(interval, compactSegment.getInterval());
+    Assertions.assertEquals(interval, compactSegment.getInterval());
     final List<String> dimensionExclusions =
         compactionTask.getCompactionRunner() instanceof NativeCompactionRunner ? List.of() : List.of("val");
     CompactionState expectedState =
@@ -1423,11 +1459,16 @@ public abstract class CompactionTaskRunBase
                  new AutoTypeColumnSchema("y", ColumnType.LONG, DEFAULT_NESTED_SPEC)
              )).toBuilder().setDimensionExclusions(dimensionExclusions).setForceSegmentSortByTime(false).build())
          .build();
-    Assert.assertEquals(expectedState, compactSegment.getLastCompactionState());
-    Assert.assertEquals(new NumberedShardSpec(0, 1), compactSegment.getShardSpec());
+    Assertions.assertEquals(expectedState, compactSegment.getLastCompactionState());
+    Assertions.assertEquals(new NumberedShardSpec(0, 1), compactSegment.getShardSpec());
 
     final File cacheDir = temporaryFolder.newFolder();
-    final SegmentCacheManager segmentCacheManager = segmentCacheManagerFactory.manufacturate(cacheDir, false);
+    final SegmentCacheManager segmentCacheManager = segmentCacheManagerFactory.manufacturate(
+        cacheDir,
+        null,
+        false,
+        false
+    );
 
     List<String> rowsFromSegment = new ArrayList<>();
     segmentCacheManager.load(compactSegment);
@@ -1438,7 +1479,7 @@ public abstract class CompactionTaskRunBase
         new QueryableIndexCursorFactory(queryableIndex),
         compactSegment.getInterval()
     );
-    Assert.assertEquals(
+    Assertions.assertEquals(
         ImmutableList.of(
             OrderBy.ascending("x"),
             OrderBy.ascending("__time"),
@@ -1455,10 +1496,10 @@ public abstract class CompactionTaskRunBase
       final Cursor cursor = cursorHolder.asCursor();
       cursor.reset();
       final ColumnSelectorFactory factory = cursor.getColumnSelectorFactory();
-      Assert.assertEquals(ColumnType.STRING, factory.getColumnCapabilities("ts").toColumnType());
-      Assert.assertEquals(ColumnType.STRING, factory.getColumnCapabilities("dim").toColumnType());
-      Assert.assertEquals(ColumnType.LONG, factory.getColumnCapabilities("x").toColumnType());
-      Assert.assertEquals(ColumnType.LONG, factory.getColumnCapabilities("y").toColumnType());
+      Assertions.assertEquals(ColumnType.STRING, factory.getColumnCapabilities("ts").toColumnType());
+      Assertions.assertEquals(ColumnType.STRING, factory.getColumnCapabilities("dim").toColumnType());
+      Assertions.assertEquals(ColumnType.LONG, factory.getColumnCapabilities("x").toColumnType());
+      Assertions.assertEquals(ColumnType.LONG, factory.getColumnCapabilities("y").toColumnType());
       while (!cursor.isDone()) {
         final ColumnValueSelector<?> selector1 = factory.makeColumnValueSelector("ts");
         final DimensionSelector selector2 = factory.makeDimensionSelector(new DefaultDimensionSpec("dim", "dim"));
@@ -1481,7 +1522,7 @@ public abstract class CompactionTaskRunBase
       }
     }
 
-    Assert.assertEquals(
+    Assertions.assertEquals(
         ImmutableList.of(
             "2014-01-01T00:00:10Z,a,10,100,1",
             "2014-01-01T00:01:20Z,a,10,100,1",
@@ -1511,14 +1552,29 @@ public abstract class CompactionTaskRunBase
   ) throws Exception
   {
     return runTask(
-        buildIndexTask(DEFAULT_PARSE_SPEC, TEST_ROWS, TEST_INTERVAL, appendToExisting),
+        buildIndexTask(DEFAULT_TIMESTAMP_SPEC, DEFAULT_DIMENSIONS_SPEC, DEFAULT_INPUT_FORMAT, TEST_ROWS, TEST_INTERVAL, appendToExisting),
         readyLatchToCountDown,
         latchToAwaitBeforeRun
     );
   }
 
   protected IndexTask buildIndexTask(
-      ParseSpec parseSpec,
+      TimestampSpec timestampSpec,
+      DimensionsSpec dimensionsSpec,
+      InputFormat inputFormat,
+      List<String> rows,
+      Interval interval,
+      boolean appendToExisting
+  ) throws Exception
+  {
+    return buildIndexTask(DEFAULT_SEGMENT_GRAN, timestampSpec, dimensionsSpec, inputFormat, rows, interval, appendToExisting);
+  }
+
+  protected IndexTask buildIndexTask(
+      Granularity segmentGranularity,
+      TimestampSpec timestampSpec,
+      DimensionsSpec dimensionsSpec,
+      InputFormat inputFormat,
       List<String> rows,
       Interval interval,
       boolean appendToExisting
@@ -1536,11 +1592,12 @@ public abstract class CompactionTaskRunBase
         null,
         null,
         IndexTaskTest.createIngestionSpec(
-            objectMapper,
             tmpDir,
-            parseSpec,
+            timestampSpec,
+            dimensionsSpec,
+            inputFormat,
             null,
-            new UniformGranularitySpec(DEFAULT_SEGMENT_GRAN, DEFAULT_QUERY_GRAN, List.of(interval)),
+            new UniformGranularitySpec(segmentGranularity, DEFAULT_QUERY_GRAN, List.of(interval)),
             IndexTaskTest.createTuningConfig(2, 2, 2L, null, false, true),
             appendToExisting,
             false
@@ -1609,30 +1666,16 @@ public abstract class CompactionTaskRunBase
 
   private TaskToolbox createTaskToolbox(ObjectMapper objectMapper, TaskActionClient taskActionClient) throws IOException
   {
-    final SegmentLoaderConfig loaderConfig = new SegmentLoaderConfig()
-    {
-      @Override
-      public List<StorageLocationConfig> getLocations()
-      {
-        return ImmutableList.of(new StorageLocationConfig(localDeepStorage, null, null));
-      }
-
-      @Override
-      public boolean isVirtualStorage()
-      {
-        return true;
-      }
-
-      @Override
-      public boolean isVirtualStorageEphemeral()
-      {
-        return true;
-      }
-    };
+    final SegmentLoaderConfig loaderConfig = SegmentLoaderConfig.builder()
+        .locations(new StorageLocationConfig(localDeepStorage, null, null))
+        .virtualStorage(true)
+        .virtualStorageIsEphemeral(true)
+        .build();
     final List<StorageLocation> storageLocations = loaderConfig.toStorageLocations();
     final SegmentCacheManager cacheManager = new SegmentLocalCacheManager(
         storageLocations,
         loaderConfig,
+        StorageLoadingThreadPool.createFromConfig(loaderConfig),
         new LeastBytesUsedStorageLocationSelectorStrategy(storageLocations),
         TestIndex.INDEX_IO,
         objectMapper
@@ -1653,7 +1696,7 @@ public abstract class CompactionTaskRunBase
         .indexMerger(testUtils.getIndexMergerV9Factory().create(true))
         .taskReportFileWriter(new SingleFileTaskReportFileWriter(reportsFile))
         .authorizerMapper(AuthTestUtils.TEST_AUTHORIZER_MAPPER)
-        .chatHandlerProvider(new NoopChatHandlerProvider())
+        .chatHandlerProvider(new ChatHandlerProvider())
         .rowIngestionMetersFactory(testUtils.getRowIngestionMetersFactory())
         .appenderatorsManager(new TestAppenderatorsManager())
         .overlordClient(overlordClient)
@@ -1667,7 +1710,12 @@ public abstract class CompactionTaskRunBase
   protected List<String> getCSVFormatRowsFromSegments(List<DataSegment> segments) throws Exception
   {
     final File cacheDir = temporaryFolder.newFolder();
-    final SegmentCacheManager segmentCacheManager = segmentCacheManagerFactory.manufacturate(cacheDir, false);
+    final SegmentCacheManager segmentCacheManager = segmentCacheManagerFactory.manufacturate(
+        cacheDir,
+        null,
+        false,
+        false
+    );
 
     List<String> rowsFromSegment = new ArrayList<>();
     for (DataSegment segment : segments) {
@@ -1680,7 +1728,7 @@ public abstract class CompactionTaskRunBase
       );
       try (final CursorHolder cursorHolder = windowed.getCursorFactory().makeCursorHolder(CursorBuildSpec.FULL_SCAN)) {
         final Cursor cursor = cursorHolder.asCursor();
-        Assert.assertNotNull(cursor);
+        Assertions.assertNotNull(cursor);
         cursor.reset();
         while (!cursor.isDone()) {
           final DimensionSelector selector1 = cursor.getColumnSelectorFactory()
@@ -1716,18 +1764,19 @@ public abstract class CompactionTaskRunBase
 
   public void verifyTaskSuccessRowsAndSchemaMatch(Pair<TaskStatus, DataSegmentsWithSchemas> resultPair, int totalRows)
   {
-    Assert.assertTrue(resultPair.lhs.isSuccess());
+    Assertions.assertTrue(resultPair.lhs.isSuccess());
     DataSegmentsWithSchemas dataSegmentsWithSchemas = resultPair.rhs;
     if (useCentralizedDatasourceSchema) {
       verifySchema(dataSegmentsWithSchemas.getSegments(), dataSegmentsWithSchemas.getSegmentSchemaMapping());
     }
-    Assert.assertEquals(
+    Assertions.assertEquals(
         totalRows,
         dataSegmentsWithSchemas.getSegments().stream().mapToInt(DataSegment::getTotalRows).sum()
     );
   }
 
   protected void verifyCompactedSegment(
+      CompactionRunner compactionRunner,
       List<DataSegment> segments,
       Granularity gran,
       Granularity queryGran,
@@ -1735,33 +1784,38 @@ public abstract class CompactionTaskRunBase
   )
   {
     if (gran == null || gran.equals(Granularities.HOUR)) {
-      Assert.assertEquals(3, segments.size());
+      Assertions.assertEquals(3, segments.size());
 
       for (int i = 0; i < 3; i++) {
         Interval interval = Intervals.of("2014-01-01T0%d:00:00/2014-01-01T0%d:00:00", i, i + 1);
-        Assert.assertEquals(interval, segments.get(i).getInterval());
-        Interval inputInterval = gran == null ? interval : this.inputInterval;
-        Assert.assertEquals(
-            getDefaultCompactionState(DEFAULT_SEGMENT_GRAN, queryGran, List.of(inputInterval)),
+        Assertions.assertEquals(interval, segments.get(i).getInterval());
+        // native runner use interval from actual seen segments, while msq runner use never use this gran
+        Interval compactInterval = gran == null ? interval : TEST_ACTUAL_INTERVAL;
+        Assertions.assertEquals(
+            getDefaultCompactionState(DEFAULT_SEGMENT_GRAN, queryGran, List.of(compactInterval)),
             segments.get(i).getLastCompactionState()
         );
         if (useOverwriteShard) {
-          Assert.assertEquals(
+          Assertions.assertEquals(
               new NumberedOverwriteShardSpec(PartitionIds.NON_ROOT_GEN_START_PARTITION_ID, 0, 2, (short) 1, (short) 1),
               segments.get(i).getShardSpec()
           );
         } else {
-          Assert.assertEquals(new NumberedShardSpec(0, 1), segments.get(i).getShardSpec());
+          Assertions.assertEquals(new NumberedShardSpec(0, 1), segments.get(i).getShardSpec());
         }
       }
     } else if (gran.equals(Granularities.SIX_HOUR)) {
-      Assert.assertEquals(1, segments.size());
-      Assert.assertEquals(TEST_INTERVAL, segments.get(0).getInterval());
-      Assert.assertEquals(
-          getDefaultCompactionState(gran, queryGran, List.of(inputInterval)),
+      Assertions.assertEquals(1, segments.size());
+      Assertions.assertEquals(TEST_INTERVAL, segments.get(0).getInterval());
+      // native runner use interval from actual seen segments, while msq runner use interval from input
+      Interval compactInterval = compactionRunner instanceof NativeCompactionRunner
+                                 ? TEST_ACTUAL_INTERVAL
+                                 : inputInterval;
+      Assertions.assertEquals(
+          getDefaultCompactionState(gran, queryGran, List.of(compactInterval)),
           segments.get(0).getLastCompactionState()
       );
-      Assert.assertEquals(new NumberedShardSpec(0, 1), segments.get(0).getShardSpec());
+      Assertions.assertEquals(new NumberedShardSpec(0, 1), segments.get(0).getShardSpec());
     } else {
       throw new RE("Gran[%s] is not supported", gran);
     }
@@ -1791,20 +1845,18 @@ public abstract class CompactionTaskRunBase
   )
   {
     // Expected compaction state to exist after compaction as we store compaction state by default
-    return new CompactionState(
-        new DynamicPartitionsSpec(5000000, Long.MAX_VALUE),
-        expectedDims,
-        expectedMetrics,
-        null,
-        IndexSpec.getDefault().getEffectiveSpec(),
-        new UniformGranularitySpec(
-            segmentGranularity,
-            queryGranularity,
-            true,
-            intervals
-        ),
-        null
-    );
+    return CompactionState.builder()
+                          .partitionsSpec(new DynamicPartitionsSpec(5000000, Long.MAX_VALUE))
+                          .dimensionsSpec(expectedDims)
+                          .metricsSpec(expectedMetrics)
+                          .indexSpec(IndexSpec.getDefault().getEffectiveSpec())
+                          .granularitySpec(new UniformGranularitySpec(
+                              segmentGranularity,
+                              queryGranularity,
+                              true,
+                              intervals
+                          ))
+                          .build();
   }
 
   private static void verifySchema(Set<DataSegment> segments, SegmentSchemaMapping segmentSchemaMapping)
@@ -1815,9 +1867,9 @@ public abstract class CompactionTaskRunBase
         continue;
       }
       nonTombstoneSegments++;
-      Assert.assertTrue(segmentSchemaMapping.getSegmentIdToMetadataMap().containsKey(segment.getId().toString()));
+      Assertions.assertTrue(segmentSchemaMapping.getSegmentIdToMetadataMap().containsKey(segment.getId().toString()));
     }
-    Assert.assertEquals(nonTombstoneSegments, segmentSchemaMapping.getSegmentIdToMetadataMap().size());
+    Assertions.assertEquals(nonTombstoneSegments, segmentSchemaMapping.getSegmentIdToMetadataMap().size());
   }
 
   private static String makeCSVFormatRow(

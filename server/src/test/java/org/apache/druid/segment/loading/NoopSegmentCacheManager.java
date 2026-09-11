@@ -22,8 +22,8 @@ package org.apache.druid.segment.loading;
 import org.apache.druid.segment.Segment;
 import org.apache.druid.segment.SegmentLazyLoadFailCallback;
 import org.apache.druid.timeline.DataSegment;
+import org.apache.druid.timeline.SegmentId;
 
-import javax.annotation.Nullable;
 import java.io.File;
 import java.util.List;
 import java.util.Optional;
@@ -47,7 +47,7 @@ public class NoopSegmentCacheManager implements SegmentCacheManager
   }
 
   @Override
-  public boolean canLoadSegmentOnDemand(DataSegment segment)
+  public boolean canLoadSegmentOnDemand(DataSegment dataSegment)
   {
     return false;
   }
@@ -71,13 +71,13 @@ public class NoopSegmentCacheManager implements SegmentCacheManager
   }
 
   @Override
-  public void load(DataSegment segment)
+  public DataSegment load(DataSegment segment) throws SegmentLoadingException
   {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public void bootstrap(DataSegment segment, SegmentLazyLoadFailCallback loadFailed)
+  public DataSegment bootstrap(DataSegment segment, SegmentLazyLoadFailCallback loadFailed)
   {
     throw new UnsupportedOperationException();
   }
@@ -95,13 +95,13 @@ public class NoopSegmentCacheManager implements SegmentCacheManager
   }
 
   @Override
-  public Optional<Segment> acquireCachedSegment(DataSegment dataSegment)
+  public Optional<Segment> acquireCachedSegment(SegmentId segmentId, AcquireMode acquireMode)
   {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public AcquireSegmentAction acquireSegment(DataSegment dataSegment)
+  public AcquireSegmentAction acquireSegment(DataSegment dataSegment, AcquireMode acquireMode)
   {
     throw new UnsupportedOperationException();
   }
@@ -118,10 +118,15 @@ public class NoopSegmentCacheManager implements SegmentCacheManager
     throw new UnsupportedOperationException();
   }
 
-  @Nullable
   @Override
-  public StorageStats getStorageStats()
+  public List<StorageLocation> getLocations()
   {
-    return null;
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public StorageLoadingThreadPool getLoadingThreadPool()
+  {
+    throw new UnsupportedOperationException();
   }
 }

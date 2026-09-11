@@ -22,11 +22,13 @@ package org.apache.druid.server.compaction;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.Lists;
 import org.apache.druid.java.util.common.DateTimes;
 import org.apache.druid.java.util.common.Intervals;
 import org.apache.druid.java.util.common.JodaUtils;
+import org.apache.druid.java.util.common.StringUtils;
 import org.apache.druid.java.util.common.granularity.Granularity;
 import org.apache.druid.java.util.common.guava.Comparators;
 import org.apache.druid.java.util.common.logger.Logger;
@@ -95,7 +97,28 @@ public class DataSourceCompactibleSegmentIterator implements CompactionSegmentIt
     this.queue = new PriorityQueue<>(searchPolicy::compareCandidates);
     this.fingerprintMapper = indexingStateFingerprintMapper;
 
-    populateQueue(timeline, skipIntervals);
+    if (skipIntervals.contains(Intervals.ETERNITY) || config.getSkipIntervals().contains(Intervals.ETERNITY)) {
+      skipAllSegments(timeline, skipIntervals);
+    } else {
+      populateQueue(timeline, skipIntervals);
+    }
+  }
+
+  private void skipAllSegments(SegmentTimeline timeline, List<Interval> skipIntervals)
+  {
+    if (timeline == null || timeline.isEmpty()) {
+      return;
+    }
+    final List<DataSegment> allSegments = new ArrayList<>(
+        timeline.findNonOvershadowedObjectsInInterval(Intervals.ETERNITY, Partitions.ONLY_COMPLETE)
+    );
+    if (allSegments.isEmpty()) {
+      return;
+    }
+    final String reason = skipIntervals.contains(Intervals.ETERNITY)
+                           ? StringUtils.format("Interval[%s] locked by another task", Intervals.ETERNITY)
+                           : StringUtils.format("Interval[%s] skipped by compaction config", Intervals.ETERNITY);
+    skippedSegments.add(CompactionCandidate.from(allSegments, null, CompactionStatus.skipped(reason)));
   }
 
   private void populateQueue(SegmentTimeline timeline, List<Interval> skipIntervals)
@@ -121,9 +144,11 @@ public class DataSourceCompactibleSegmentIterator implements CompactionSegmentIt
           if (!partialEternitySegments.isEmpty()) {
             // Do not use the target segment granularity in the CompactionCandidate
             // as Granularities.getIterable() will cause OOM due to the above issue
-            CompactionCandidate candidatesWithStatus = CompactionCandidate
-                .from(partialEternitySegments, null)
-                .withCurrentStatus(CompactionStatus.skipped("Segments have partial-eternity intervals"));
+            CompactionCandidate candidatesWithStatus = CompactionCandidate.from(
+                partialEternitySegments,
+                null,
+                CompactionStatus.skipped("Segments have partial-eternity intervals")
+            );
             skippedSegments.add(candidatesWithStatus);
             return;
           }
@@ -329,28 +354,31 @@ public class DataSourceCompactibleSegmentIterator implements CompactionSegmentIt
         continue;
       }
 
-      final CompactionCandidate candidates = CompactionCandidate.from(segments, config.getSegmentGranularity());
-      final CompactionStatus compactionStatus = CompactionStatus.compute(candidates, config, fingerprintMapper);
-      final CompactionCandidate candidatesWithStatus = candidates.withCurrentStatus(compactionStatus);
+      final CompactionStatus compactionStatus = CompactionStatus.compute(segments, config, fingerprintMapper);
+      final CompactionCandidate candidates = CompactionCandidate.from(
+          segments,
+          config.getSegmentGranularity(),
+          compactionStatus
+      );
 
       if (compactionStatus.isComplete()) {
-        compactedSegments.add(candidatesWithStatus);
+        compactedSegments.add(candidates);
       } else if (compactionStatus.isSkipped()) {
-        skippedSegments.add(candidatesWithStatus);
+        skippedSegments.add(candidates);
       } else if (!queuedIntervals.contains(candidates.getUmbrellaInterval())) {
-        queue.add(candidatesWithStatus);
+        queue.add(candidates);
         queuedIntervals.add(candidates.getUmbrellaInterval());
       }
     }
   }
 
   /**
-   * Returns the initial searchInterval which is {@code (timeline.first().start, timeline.last().end - skipOffset)}.
+   * Returns the initial search intervals for compaction, excluding the provided skipIntervals,
+   * {@code config.getSkipIntervals()} and the computed skip interval from
+   * {@code config.getSkipOffsetFromLatest()}.
    */
-  private List<Interval> findInitialSearchInterval(
-      SegmentTimeline timeline,
-      @Nullable List<Interval> skipIntervals
-  )
+  @VisibleForTesting
+  List<Interval> findInitialSearchInterval(SegmentTimeline timeline, List<Interval> skipIntervals)
   {
     final Period skipOffset = config.getSkipOffsetFromLatest();
     Preconditions.checkArgument(timeline != null && !timeline.isEmpty(), "timeline should not be null or empty");
@@ -358,31 +386,25 @@ public class DataSourceCompactibleSegmentIterator implements CompactionSegmentIt
 
     final TimelineObjectHolder<String, DataSegment> first = Preconditions.checkNotNull(timeline.first(), "first");
     final TimelineObjectHolder<String, DataSegment> last = Preconditions.checkNotNull(timeline.last(), "last");
-    final Interval latestSkipInterval = computeLatestSkipInterval(
-        config.getSegmentGranularity(),
-        last.getInterval().getEnd(),
-        skipOffset
-    );
-    final List<Interval> allSkipIntervals
-        = sortAndAddSkipIntervalFromLatest(latestSkipInterval, skipIntervals);
+    final Granularity segmentGranularity = config.getSegmentGranularity();
+    final DateTime latestDataTimestamp = last.getInterval().getEnd();
+    final List<Interval> allSkipIntervals = JodaUtils.condenseIntervals(Iterables.concat(
+        Iterables.transform(skipIntervals, this::alignToSegmentGranularity),
+        Iterables.transform(config.getSkipIntervals(), this::alignToSegmentGranularity),
+        List.of(alignToSegmentGranularity(new Interval(skipOffset, latestDataTimestamp)))
+    ));
 
     // Collect stats for all skipped segments
     for (Interval skipInterval : allSkipIntervals) {
       final List<DataSegment> segments = new ArrayList<>(
           timeline.findNonOvershadowedObjectsInInterval(skipInterval, Partitions.ONLY_COMPLETE)
       );
-      if (!CollectionUtils.isNullOrEmpty(segments)) {
-        final CompactionCandidate candidates = CompactionCandidate.from(segments, config.getSegmentGranularity());
-
-        final CompactionStatus reason;
-        if (candidates.getCompactionInterval().overlaps(latestSkipInterval)) {
-          reason = CompactionStatus.skipped("skip offset from latest[%s]", skipOffset);
-        } else {
-          reason = CompactionStatus.skipped("interval locked by another task");
-        }
-
-        final CompactionCandidate candidatesWithStatus = candidates.withCurrentStatus(reason);
-        skippedSegments.add(candidatesWithStatus);
+      if (!segments.isEmpty()) {
+        skippedSegments.add(CompactionCandidate.from(
+            segments,
+            segmentGranularity,
+            CompactionStatus.skipped(describeSkipReason(skipInterval, skipOffset, config.getSkipIntervals(), skipIntervals))
+        ));
       }
     }
 
@@ -405,7 +427,7 @@ public class DataSourceCompactibleSegmentIterator implements CompactionSegmentIt
           // findNonOvershadowedObjectsInInterval() may return segments merely intersecting with lookupInterval, while
           // we are interested only in segments fully lying within lookupInterval here.
           .filter(segment -> lookupInterval.contains(segment.getInterval()))
-          .collect(Collectors.toList());
+          .toList();
 
       if (segments.isEmpty()) {
         continue;
@@ -421,62 +443,56 @@ public class DataSourceCompactibleSegmentIterator implements CompactionSegmentIt
           .map(segment -> segment.getId().getIntervalEnd())
           .max(Comparator.naturalOrder())
           .orElseThrow(AssertionError::new);
-      searchIntervals.add(new Interval(searchStart, searchEnd));
+
+      final Interval searchInterval = new Interval(searchStart, searchEnd);
+      final Interval overlappingSkipInterval = allSkipIntervals.stream()
+                                                                .filter(searchInterval::overlaps)
+                                                                .findFirst()
+                                                                .orElse(null);
+
+      // Guardrail check, this should never happen
+      if (overlappingSkipInterval != null) {
+        log.warn(
+            "searchInterval[%s] for datasource[%s] unexpectedly overlaps skipInterval[%s]: %s, skipping it",
+            searchInterval, dataSource, overlappingSkipInterval,
+            describeSkipReason(overlappingSkipInterval, skipOffset, config.getSkipIntervals(), skipIntervals)
+        );
+        continue;
+      }
+      searchIntervals.add(searchInterval);
     }
 
     return searchIntervals;
   }
 
-  static Interval computeLatestSkipInterval(
-      @Nullable Granularity configuredSegmentGranularity,
-      DateTime latestDataTimestamp,
-      Period skipOffsetFromLatest
+  private static String describeSkipReason(
+      Interval skipInterval,
+      Period skipOffset,
+      List<Interval> configuredSkipIntervals,
+      List<Interval> lockedIntervals
   )
   {
-    if (configuredSegmentGranularity == null) {
-      return new Interval(skipOffsetFromLatest, latestDataTimestamp);
+    if (lockedIntervals.stream().anyMatch(skipInterval::overlaps)) {
+      return StringUtils.format("Interval[%s] locked by another task", skipInterval);
+    } else if (configuredSkipIntervals.stream().anyMatch(skipInterval::overlaps)) {
+      return StringUtils.format("Interval[%s] skipped by compaction config", skipInterval);
     } else {
-      DateTime skipFromLastest = new DateTime(latestDataTimestamp, latestDataTimestamp.getZone()).minus(skipOffsetFromLatest);
-      DateTime skipOffsetBucketToSegmentGranularity = configuredSegmentGranularity.bucketStart(skipFromLastest);
-      return new Interval(skipOffsetBucketToSegmentGranularity, latestDataTimestamp);
+      return StringUtils.format("Skip offset from latest[%s]", skipOffset);
     }
   }
 
-  @VisibleForTesting
-  static List<Interval> sortAndAddSkipIntervalFromLatest(
-      Interval skipFromLatest,
-      @Nullable List<Interval> skipIntervals
-  )
+  private Interval alignToSegmentGranularity(Interval interval)
   {
-    final List<Interval> nonNullSkipIntervals = skipIntervals == null
-                                                ? new ArrayList<>(1)
-                                                : new ArrayList<>(skipIntervals.size());
-
-    if (skipIntervals != null) {
-      final List<Interval> sortedSkipIntervals = new ArrayList<>(skipIntervals);
-      sortedSkipIntervals.sort(Comparators.intervalsByStartThenEnd());
-
-      final List<Interval> overlapIntervals = new ArrayList<>();
-
-      for (Interval interval : sortedSkipIntervals) {
-        if (interval.overlaps(skipFromLatest)) {
-          overlapIntervals.add(interval);
-        } else {
-          nonNullSkipIntervals.add(interval);
-        }
-      }
-
-      if (!overlapIntervals.isEmpty()) {
-        overlapIntervals.add(skipFromLatest);
-        nonNullSkipIntervals.add(JodaUtils.umbrellaInterval(overlapIntervals));
-      } else {
-        nonNullSkipIntervals.add(skipFromLatest);
-      }
-    } else {
-      nonNullSkipIntervals.add(skipFromLatest);
+    final Granularity segmentGranularity = config.getSegmentGranularity();
+    if (segmentGranularity == null) {
+      return interval;
     }
-
-    return nonNullSkipIntervals;
+    final DateTime alignedStart = segmentGranularity.bucketStart(interval.getStart());
+    final DateTime endBucketStart = segmentGranularity.bucketStart(interval.getEnd());
+    final DateTime alignedEnd = endBucketStart.isEqual(interval.getEnd())
+                                 ? interval.getEnd()
+                                 : segmentGranularity.bucketEnd(interval.getEnd());
+    return new Interval(alignedStart, alignedEnd);
   }
 
   /**
@@ -509,7 +525,7 @@ public class DataSourceCompactibleSegmentIterator implements CompactionSegmentIt
       }
     }
 
-    if (!remainingStart.equals(remainingEnd)) {
+    if (remainingStart.isBefore(remainingEnd)) {
       filteredIntervals.add(new Interval(remainingStart, remainingEnd));
     }
 

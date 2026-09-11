@@ -24,6 +24,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.apache.druid.error.DruidException;
 import org.apache.druid.error.DruidExceptionMatcher;
+import org.apache.druid.error.ThrowableMatcher;
 import org.apache.druid.indexing.common.TaskLockType;
 import org.apache.druid.indexing.common.actions.RetrieveUsedSegmentsAction;
 import org.apache.druid.indexing.common.actions.SegmentAllocateAction;
@@ -34,6 +35,7 @@ import org.apache.druid.java.util.common.ISE;
 import org.apache.druid.java.util.common.Intervals;
 import org.apache.druid.java.util.common.StringUtils;
 import org.apache.druid.java.util.common.granularity.Granularities;
+import org.apache.druid.msq.indexing.error.DruidExceptionFault;
 import org.apache.druid.msq.indexing.error.InsertCannotAllocateSegmentFault;
 import org.apache.druid.msq.indexing.error.InsertCannotBeEmptyFault;
 import org.apache.druid.msq.indexing.error.InsertTimeNullFault;
@@ -53,8 +55,6 @@ import org.apache.druid.segment.realtime.appenderator.SegmentIdWithShardSpec;
 import org.apache.druid.timeline.DataSegment;
 import org.apache.druid.timeline.partition.DimensionRangeShardSpec;
 import org.apache.druid.timeline.partition.LinearShardSpec;
-import org.hamcrest.CoreMatchers;
-import org.junit.internal.matchers.ThrowableMessageMatcher;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatcher;
 import org.mockito.ArgumentMatchers;
@@ -653,12 +653,7 @@ public class MSQFaultsTest extends MSQTestBase
                      .setExpectedRowSignature(rowSignature)
                      .setExpectedShardSpec(DimensionRangeShardSpec.class)
                      .setExpectedExecutionErrorMatcher(
-                         CoreMatchers.allOf(
-                             CoreMatchers.instanceOf(ISE.class),
-                             ThrowableMessageMatcher.hasMessage(
-                                 CoreMatchers.containsString(expectedError)
-                             )
-                         )
+                         ThrowableMatcher.of(ISE.class).expectMessageContains(expectedError)
                      )
                      .verifyExecutionError();
   }
@@ -701,14 +696,35 @@ public class MSQFaultsTest extends MSQTestBase
                      .setExpectedRowSignature(rowSignature)
                      .setExpectedShardSpec(DimensionRangeShardSpec.class)
                      .setExpectedExecutionErrorMatcher(
-                         CoreMatchers.allOf(
-                             CoreMatchers.instanceOf(ISE.class),
-                             ThrowableMessageMatcher.hasMessage(
-                                 CoreMatchers.containsString(expectedError)
-                             )
-                         )
+                         ThrowableMatcher.of(ISE.class).expectMessageContains(expectedError)
                      )
                      .verifyExecutionError();
+  }
+
+  @Test
+  public void testDruidExceptionFault()
+  {
+    // BITWISE_COMPLEMENT(m1 * 1e19) throws because the double value exceeds Long range. The expression engine
+    // wraps this in DruidException, which getFaultFromException() converts to DruidExceptionFault.
+    final Map<String, Object> context = ImmutableMap.<String, Object>builder()
+                                                    .putAll(DEFAULT_MSQ_CONTEXT)
+                                                    .put("vectorize", "false")
+                                                    .build();
+
+    testSelectQuery()
+        .setSql("SELECT BITWISE_COMPLEMENT(m1 * 1e19) FROM foo")
+        .setQueryContext(context)
+        .setExpectedMSQFault(
+            new DruidExceptionFault(
+                "general",
+                "USER",
+                "INVALID_INPUT",
+                "Function[bitwiseComplement] Possible data truncation, param [10000000000000000000.000000]"
+                + " is out of LONG value range",
+                Collections.emptyMap()
+            )
+        )
+        .verifyResults();
   }
 
   private void testLockTypes(TaskLockType contextTaskLockType, String sql, String errorMessage)
