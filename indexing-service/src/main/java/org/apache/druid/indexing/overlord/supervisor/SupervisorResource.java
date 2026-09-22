@@ -40,6 +40,7 @@ import org.apache.druid.indexing.overlord.TaskMaster;
 import org.apache.druid.indexing.overlord.http.security.SupervisorResourceFilter;
 import org.apache.druid.java.util.common.StringUtils;
 import org.apache.druid.java.util.common.UOE;
+import org.apache.druid.java.util.common.logger.Logger;
 import org.apache.druid.segment.incremental.ParseExceptionReport;
 import org.apache.druid.server.security.Action;
 import org.apache.druid.server.security.AuthConfig;
@@ -80,6 +81,8 @@ import java.util.stream.Collectors;
 @Path("/druid/indexer/v1/supervisor")
 public class SupervisorResource
 {
+  private static final Logger log = new Logger(SupervisorResource.class);
+
   private static final Function<VersionedSupervisorSpec, Iterable<ResourceAction>> SPEC_DATASOURCE_READ_RA_GENERATOR =
       supervisorSpec -> {
         if (supervisorSpec.getSpec() == null) {
@@ -702,9 +705,23 @@ public class SupervisorResource
               manager,
               manager.getSupervisorIds()
           );
+          final String operation = suspend ? "suspend" : "resume";
 
           for (final String supervisorId : authorizedSupervisorIds) {
-            manager.suspendOrResumeSupervisor(supervisorId, suspend);
+            try {
+              manager.suspendOrResumeSupervisor(supervisorId, suspend);
+            }
+            catch (RuntimeException e) {
+              final String errorMessage = StringUtils.format(
+                  "Failed to %s supervisor [%s]",
+                  operation,
+                  supervisorId
+              );
+              log.error(e, errorMessage);
+              return Response.serverError()
+                             .entity(ImmutableMap.of("error", errorMessage))
+                             .build();
+            }
           }
 
           return Response.ok(ImmutableMap.of("status", "success")).build();

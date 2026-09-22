@@ -662,7 +662,7 @@ public class SupervisorResourceTest extends EasyMockSupport
     EasyMock.expect(supervisorManager.getSupervisorIds()).andReturn(SUPERVISOR_IDS).atLeastOnce();
     EasyMock.expect(supervisorManager.getSupervisorSpec(SPEC1.getId())).andReturn(Optional.of(SPEC1));
     EasyMock.expect(supervisorManager.getSupervisorSpec(SPEC2.getId())).andReturn(Optional.of(SPEC2));
-    EasyMock.expect(supervisorManager.suspendOrResumeSupervisor(SPEC1.getId(), true)).andReturn(true);
+    EasyMock.expect(supervisorManager.suspendOrResumeSupervisor(SPEC1.getId(), true)).andReturn(false);
     EasyMock.expect(supervisorManager.suspendOrResumeSupervisor(SPEC2.getId(), true)).andReturn(true);
 
     setupMockRequest();
@@ -671,6 +671,34 @@ public class SupervisorResourceTest extends EasyMockSupport
     Response response = supervisorResource.suspendAll(request);
     Assert.assertEquals(200, response.getStatus());
     Assert.assertEquals(ImmutableMap.of("status", "success"), response.getEntity());
+    verifyAll();
+  }
+
+  @Test
+  public void testSuspendAllReturnsServerErrorAndStopsAfterFirstFailure()
+  {
+    final Capture<String> attemptedSupervisorId = Capture.newInstance();
+    EasyMock.expect(taskMaster.getSupervisorManager()).andReturn(Optional.of(supervisorManager));
+    EasyMock.expect(supervisorManager.getSupervisorIds()).andReturn(SUPERVISOR_IDS).atLeastOnce();
+    EasyMock.expect(supervisorManager.getSupervisorSpec(SPEC1.getId())).andReturn(Optional.of(SPEC1));
+    EasyMock.expect(supervisorManager.getSupervisorSpec(SPEC2.getId())).andReturn(Optional.of(SPEC2));
+    EasyMock.expect(
+        supervisorManager.suspendOrResumeSupervisor(EasyMock.capture(attemptedSupervisorId), EasyMock.eq(true))
+    ).andThrow(new RuntimeException("metadata failure")).once();
+
+    setupMockRequest();
+    replayAll();
+
+    Response response = supervisorResource.suspendAll(request);
+
+    Assert.assertEquals(500, response.getStatus());
+    Assert.assertEquals(
+        ImmutableMap.of(
+            "error",
+            "Failed to suspend supervisor [" + attemptedSupervisorId.getValue() + "]"
+        ),
+        response.getEntity()
+    );
     verifyAll();
   }
 
