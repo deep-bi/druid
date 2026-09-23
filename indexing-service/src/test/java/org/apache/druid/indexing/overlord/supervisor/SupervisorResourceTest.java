@@ -662,7 +662,7 @@ public class SupervisorResourceTest extends EasyMockSupport
     EasyMock.expect(supervisorManager.getSupervisorIds()).andReturn(SUPERVISOR_IDS).atLeastOnce();
     EasyMock.expect(supervisorManager.getSupervisorSpec(SPEC1.getId())).andReturn(Optional.of(SPEC1));
     EasyMock.expect(supervisorManager.getSupervisorSpec(SPEC2.getId())).andReturn(Optional.of(SPEC2));
-    EasyMock.expect(supervisorManager.suspendOrResumeSupervisor(SPEC1.getId(), true)).andReturn(false);
+    EasyMock.expect(supervisorManager.suspendOrResumeSupervisor(SPEC1.getId(), true)).andReturn(true);
     EasyMock.expect(supervisorManager.suspendOrResumeSupervisor(SPEC2.getId(), true)).andReturn(true);
 
     setupMockRequest();
