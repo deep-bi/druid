@@ -46,6 +46,7 @@ import org.easymock.Capture;
 import org.easymock.EasyMock;
 import org.easymock.EasyMockRunner;
 import org.easymock.EasyMockSupport;
+import org.easymock.IMocksControl;
 import org.easymock.Mock;
 import org.hamcrest.MatcherAssert;
 import org.junit.Assert;
@@ -558,6 +559,79 @@ public class SupervisorManagerTest extends EasyMockSupport
     Assert.assertFalse("resetInvalidSupervisor", manager.resetSupervisor("nobody_home", datasourceMetadata));
 
     verifyAll();
+  }
+
+  @Test
+  public void testSuspendPersistsBeforeStoppingAndStartsReplacementAfterStop()
+  {
+    final IMocksControl control = EasyMock.createStrictControl();
+    final MetadataSupervisorManager metadata = control.createMock(MetadataSupervisorManager.class);
+    final Supervisor currentSupervisor = control.createMock(Supervisor.class);
+    final Supervisor replacementSupervisor = control.createMock(Supervisor.class);
+    final SupervisorSpec currentSpec = control.createMock(SupervisorSpec.class);
+    final SupervisorSpec nextSpec = control.createMock(SupervisorSpec.class);
+    final SupervisorManager testManager = new SupervisorManager(MAPPER, metadata);
+
+    EasyMock.expect(metadata.getLatest()).andReturn(ImmutableMap.of("id", currentSpec));
+    EasyMock.expect(currentSpec.getId()).andReturn("id");
+    EasyMock.expect(currentSpec.createSupervisor()).andReturn(currentSupervisor);
+    EasyMock.expect(currentSupervisor.createAutoscaler(currentSpec)).andReturn(null);
+    currentSupervisor.start();
+
+    EasyMock.expect(currentSpec.isSuspended()).andReturn(false);
+    EasyMock.expect(currentSpec.createSuspendedSpec()).andReturn(nextSpec);
+    EasyMock.expect(nextSpec.getId()).andReturn("id");
+    metadata.insert("id", nextSpec);
+    EasyMock.expect(nextSpec.getId()).andReturn("id");
+    currentSupervisor.stop(true);
+    EasyMock.expect(nextSpec.getId()).andReturn("id");
+    EasyMock.expect(nextSpec.createSupervisor()).andReturn(replacementSupervisor);
+    EasyMock.expect(replacementSupervisor.createAutoscaler(nextSpec)).andReturn(null);
+    replacementSupervisor.start();
+    control.replay();
+
+    testManager.start();
+
+    Assert.assertTrue(testManager.suspendOrResumeSupervisor("id", true));
+    Assert.assertSame(nextSpec, testManager.getSupervisorSpec("id").get());
+    control.verify();
+  }
+
+  @Test
+  public void testSuspendMetadataFailureLeavesCurrentSupervisorRegistered()
+  {
+    final IMocksControl control = EasyMock.createStrictControl();
+    final MetadataSupervisorManager metadata = control.createMock(MetadataSupervisorManager.class);
+    final Supervisor currentSupervisor = control.createMock(Supervisor.class);
+    final SupervisorSpec currentSpec = control.createMock(SupervisorSpec.class);
+    final SupervisorSpec nextSpec = control.createMock(SupervisorSpec.class);
+    final SupervisorManager testManager = new SupervisorManager(MAPPER, metadata);
+    final RuntimeException metadataFailure = new RuntimeException("metadata failure");
+
+    EasyMock.expect(metadata.getLatest()).andReturn(ImmutableMap.of("id", currentSpec));
+    EasyMock.expect(currentSpec.getId()).andReturn("id");
+    EasyMock.expect(currentSpec.createSupervisor()).andReturn(currentSupervisor);
+    EasyMock.expect(currentSupervisor.createAutoscaler(currentSpec)).andReturn(null);
+    currentSupervisor.start();
+
+    EasyMock.expect(currentSpec.isSuspended()).andReturn(false);
+    EasyMock.expect(currentSpec.createSuspendedSpec()).andReturn(nextSpec);
+    EasyMock.expect(nextSpec.getId()).andReturn("id");
+    metadata.insert("id", nextSpec);
+    EasyMock.expectLastCall().andThrow(metadataFailure);
+    control.replay();
+
+    testManager.start();
+
+    Assert.assertSame(
+        metadataFailure,
+        Assert.assertThrows(
+            RuntimeException.class,
+            () -> testManager.suspendOrResumeSupervisor("id", true)
+        )
+    );
+    Assert.assertSame(currentSpec, testManager.getSupervisorSpec("id").get());
+    control.verify();
   }
 
   @Test

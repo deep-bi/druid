@@ -479,8 +479,9 @@ public class SupervisorManager
     }
 
     SupervisorSpec nextState = suspend ? pair.rhs.createSuspendedSpec() : pair.rhs.createRunningSpec();
+    metadataSupervisorManager.insert(nextState.getId(), nextState);
     possiblyStopAndRemoveSupervisorInternal(nextState.getId(), false);
-    return createAndStartSupervisorInternal(nextState, true);
+    return createAndStartSupervisorInternal(nextState, false);
   }
 
   /**

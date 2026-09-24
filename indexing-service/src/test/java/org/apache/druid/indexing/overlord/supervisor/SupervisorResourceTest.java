@@ -574,6 +574,21 @@ public class SupervisorResourceTest extends EasyMockSupport
   }
 
   @Test
+  public void testSpecSuspendPropagatesManagerFailure()
+  {
+    final RuntimeException transitionFailure = new RuntimeException("transition failed");
+    EasyMock.expect(taskMaster.getSupervisorManager()).andReturn(Optional.of(supervisorManager));
+    EasyMock.expect(supervisorManager.suspendOrResumeSupervisor("my-id", true)).andThrow(transitionFailure);
+    replayAll();
+
+    Assert.assertSame(
+        transitionFailure,
+        Assert.assertThrows(RuntimeException.class, () -> supervisorResource.specSuspend("my-id"))
+    );
+    verifyAll();
+  }
+
+  @Test
   public void testSpecResume()
   {
     TestSupervisorSpec running = new TestSupervisorSpec("my-id", null, null, false)
@@ -656,6 +671,34 @@ public class SupervisorResourceTest extends EasyMockSupport
     Response response = supervisorResource.suspendAll(request);
     Assert.assertEquals(200, response.getStatus());
     Assert.assertEquals(ImmutableMap.of("status", "success"), response.getEntity());
+    verifyAll();
+  }
+
+  @Test
+  public void testSuspendAllReturnsServerErrorAndStopsAfterFirstFailure()
+  {
+    final Capture<String> attemptedSupervisorId = Capture.newInstance();
+    EasyMock.expect(taskMaster.getSupervisorManager()).andReturn(Optional.of(supervisorManager));
+    EasyMock.expect(supervisorManager.getSupervisorIds()).andReturn(SUPERVISOR_IDS).atLeastOnce();
+    EasyMock.expect(supervisorManager.getSupervisorSpec(SPEC1.getId())).andReturn(Optional.of(SPEC1));
+    EasyMock.expect(supervisorManager.getSupervisorSpec(SPEC2.getId())).andReturn(Optional.of(SPEC2));
+    EasyMock.expect(
+        supervisorManager.suspendOrResumeSupervisor(EasyMock.capture(attemptedSupervisorId), EasyMock.eq(true))
+    ).andThrow(new RuntimeException("metadata failure")).once();
+
+    setupMockRequest();
+    replayAll();
+
+    Response response = supervisorResource.suspendAll(request);
+
+    Assert.assertEquals(500, response.getStatus());
+    Assert.assertEquals(
+        ImmutableMap.of(
+            "error",
+            "Failed to suspend supervisor [" + attemptedSupervisorId.getValue() + "]"
+        ),
+        response.getEntity()
+    );
     verifyAll();
   }
 
