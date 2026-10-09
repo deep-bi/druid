@@ -223,7 +223,7 @@ name: Jackson
 license_category: binary
 module: java-core
 license_name: Apache License version 2.0
-version: 2.18.8
+version: 2.22.3
 libraries:
   - com.fasterxml.jackson.core: jackson-core
 notice: |
@@ -254,9 +254,8 @@ name: Jackson
 license_category: binary
 module: java-core
 license_name: Apache License version 2.0
-version: 2.18.8
+version: 2.22.3
 libraries:
-  - com.fasterxml.jackson.core: jackson-annotations
   - com.fasterxml.jackson.dataformat: jackson-dataformat-cbor
   - com.fasterxml.jackson.dataformat: jackson-dataformat-smile
   - com.fasterxml.jackson.dataformat: jackson-dataformat-xml
@@ -296,7 +295,17 @@ name: Jackson
 license_category: binary
 module: java-core
 license_name: Apache License version 2.0
-version: 2.18.8
+version: "2.22"
+libraries:
+  - com.fasterxml.jackson.core: jackson-annotations
+
+---
+
+name: Jackson
+license_category: binary
+module: java-core
+license_name: Apache License version 2.0
+version: 2.22.3
 libraries:
   - com.fasterxml.jackson.core: jackson-databind
 notice: |
@@ -2018,7 +2027,7 @@ name: Apache Zookeeper
 license_category: binary
 module: java-core
 license_name: Apache License version 2.0
-version: 3.8.6
+version: 3.8.7
 libraries:
   - org.apache.zookeeper: zookeeper
   - org.apache.zookeeper: zookeeper-jute
@@ -2861,7 +2870,7 @@ libraries:
 ---
 
 name: Jackson Dataformat Yaml
-version: 2.18.8
+version: 2.22.3
 license_category: binary
 module: extensions/druid-avro-extensions
 license_name: Apache License version 2.0
@@ -4278,7 +4287,7 @@ license_category: binary
 module: extensions/kafka-extraction-namespace
 license_name: Apache License version 2.0
 copyright: LAMP/EPFL and Lightbend, Inc.
-version: 2.12.7
+version: 2.13.18
 libraries:
   - org.scala-lang: scala-library
 
