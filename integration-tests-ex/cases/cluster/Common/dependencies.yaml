@@ -104,42 +104,62 @@ services:
       start_period: 3m
       start_interval: 15s
 
-  minio:
-    container_name: minio
+  rustfs:
+    container_name: rustfs
     labels:
       druid-int-test: "true"
-    command: server /data --console-address ":9001"
     networks:
       druid-it-net:
         ipv4_address: 172.172.172.5
-    image: minio/minio:RELEASE.2023-05-27T05-56-19Z
+    image: rustfs/rustfs:1.0.0
     ports:
       - '9000:9000'
       - '9001:9001'
     volumes:
-      - ${SHARED_DIR}/minio:/data
+      - ${SHARED_DIR}/rustfs:/data
     environment:
-      - MINIO_ROOT_USER=${AWS_ACCESS_KEY_ID}
-      - MINIO_ROOT_PASSWORD=${AWS_SECRET_ACCESS_KEY}
+      - RUSTFS_ACCESS_KEY=${AWS_ACCESS_KEY_ID}
+      - RUSTFS_SECRET_KEY=${AWS_SECRET_ACCESS_KEY}
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:9000/minio/health/ready" ]
+      test: [ "CMD", "curl", "-f", "http://localhost:9000/health/ready" ]
       interval: 5s
       timeout: 3s
       retries: 12
       start_period: 1m
       start_interval: 5s
 
-  create_minio_buckets:
-    image: minio/mc
+  create_s3_buckets:
+    image: public.ecr.aws/aws-cli/aws-cli:2.31.18
     networks:
       druid-it-net:
         ipv4_address: 172.172.172.6
-    entrypoint: >
-      /bin/sh -c "
-      /usr/bin/mc alias set s3 http://minio:9000 ${AWS_ACCESS_KEY_ID} ${AWS_SECRET_ACCESS_KEY};
-      /usr/bin/mc mb s3/${DRUID_CLOUD_BUCKET};
-      /usr/bin/mc anonymous set public s3/${DRUID_CLOUD_BUCKET};
-      "
+    environment:
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_DEFAULT_REGION=${AWS_REGION}
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        aws --endpoint-url http://rustfs:9000 s3api head-bucket --bucket ${DRUID_CLOUD_BUCKET} >/dev/null 2>&1 ||
+          aws --endpoint-url http://rustfs:9000 s3 mb s3://${DRUID_CLOUD_BUCKET}
+        aws --endpoint-url http://rustfs:9000 s3api put-bucket-policy --bucket ${DRUID_CLOUD_BUCKET} --policy '{
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {"AWS": "*"},
+              "Action": ["s3:GetBucketLocation", "s3:ListBucket", "s3:ListBucketMultipartUploads"],
+              "Resource": "arn:aws:s3:::${DRUID_CLOUD_BUCKET}"
+            },
+            {
+              "Effect": "Allow",
+              "Principal": {"AWS": "*"},
+              "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:ListMultipartUploadParts", "s3:AbortMultipartUpload"],
+              "Resource": "arn:aws:s3:::${DRUID_CLOUD_BUCKET}/*"
+            }
+          ]
+        }'
 
   ## TODO: Not yet retested
 ### Optional supporting infra
@@ -225,4 +245,3 @@ services:
     command: "bash -c 'echo Start druid-it-hadoop container... && \
                 /etc/bootstrap.sh && \
                 tail -f /dev/null'"
-
