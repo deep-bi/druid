@@ -4288,7 +4288,7 @@ license_category: binary
 module: extensions/kafka-extraction-namespace
 license_name: Apache License version 2.0
 copyright: LAMP/EPFL and Lightbend, Inc.
-version: 2.12.7
+version: 2.13.18
 libraries:
   - org.scala-lang: scala-library
 
