@@ -131,6 +131,7 @@ function build_shared_dir {
   mkdir -p $SHARED_DIR/logs
   mkdir -p $SHARED_DIR/tasklogs
   mkdir -p $SHARED_DIR/kafka
+  mkdir -p $SHARED_DIR/rustfs
   mkdir -p $SHARED_DIR/resources
   mkdir -p $SHARED_DIR/export
   cp $BASE_MODULE_DIR/assets/log4j2.xml $SHARED_DIR/resources

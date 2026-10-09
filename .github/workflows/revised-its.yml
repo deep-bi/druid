@@ -79,7 +79,7 @@ jobs:
       it: ${{ matrix.it }}
       mysql_driver: com.mysql.jdbc.Driver
 
-  s3-deep-storage-minio:
+  s3-deep-storage-rustfs:
     needs: changes
     uses: ./.github/workflows/reusable-revised-its.yml
     if: ${{ needs.changes.outputs.core == 'true' || needs.changes.outputs.common-extensions == 'true' }}

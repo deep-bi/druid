@@ -89,7 +89,7 @@ public class S3TestUtil
     return AmazonS3ClientBuilder
         .standard()
         .withCredentials(new AWSStaticCredentialsProvider(credentials))
-        // Setting endpoint to MinIO S3 API endpoint (e.g., "http://localhost:9000")
+        // Setting endpoint to the RustFS S3 API endpoint (e.g., "http://localhost:9000")
         // configured in integration-tests-ex/cases/cluster/Common/dependencies.yaml
         .withEndpointConfiguration(new AwsClientBuilder.EndpointConfiguration("http://localhost:9000", S3_REGION))
         .withPathStyleAccessEnabled(true)

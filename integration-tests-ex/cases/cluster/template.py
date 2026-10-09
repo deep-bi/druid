@@ -32,7 +32,7 @@ DRUID_NETWORK = 'druid-it-net'
 DRUID_SUBNET = '172.172.172'
 ZOO_KEEPER = 'zookeeper'
 METADATA = 'metadata'
-MINIO = 'minio'
+RUSTFS = 'rustfs'
 KAFKA = 'kafka'
 COORDINATOR = 'coordinator'
 OVERLORD = 'overlord'
@@ -74,7 +74,8 @@ class BaseTemplate:
     SERVICE_DEPENDENCY_CONDITION_LOOKUP = {
       METADATA: 'service_healthy',
       ZOO_KEEPER: 'service_started',
-      MINIO: 'service_healthy',
+      RUSTFS: 'service_healthy',
+      'create_s3_buckets': 'service_completed_successfully',
     }
 
     def __init__(self):
