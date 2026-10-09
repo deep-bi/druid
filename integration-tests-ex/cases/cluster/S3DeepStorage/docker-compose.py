@@ -14,7 +14,7 @@
 # limitations under the License.
 
 from template import BaseTemplate, generate
-from template import ZOO_KEEPER, METADATA, OVERLORD, MINIO
+from template import ZOO_KEEPER, METADATA, OVERLORD, RUSTFS
 
 class Template(BaseTemplate):
 
@@ -40,27 +40,26 @@ class Template(BaseTemplate):
         self.add_property(service, 'druid.storage.baseKey', '${DRUID_CLOUD_PATH}')
         self.add_env(service, 'AWS_REGION', '${AWS_REGION}')
 
-        # Adding the following to make druid work with MinIO
-        # See https://blog.min.io/how-to-druid-superset-minio/ for more details
+        # Configure the S3-compatible RustFS endpoint.
         self.add_property(service, 'druid.s3.protocol', 'http')
         self.add_property(service, 'druid.s3.enablePathStyleAccess', 'true')
         self.add_property(service, 'druid.s3.endpoint.url', 'http://172.172.172.5:9000/')
 
     def define_overlord(self):
         service = self.define_druid_service(OVERLORD, OVERLORD)
-        self.add_depends(service, [ZOO_KEEPER, METADATA, 'create_minio_buckets'])
+        self.add_depends(service, [ZOO_KEEPER, METADATA, 'create_s3_buckets'])
         return service
 
     # This test uses different data than the default.
     def define_data_dir(self, service):
         self.add_volume(service, '../data', '/resources')
 
-    def create_minio_container(self):
-        return self.define_external_service(MINIO)
+    def create_s3_container(self):
+        return self.define_external_service(RUSTFS)
 
-    def create_minio_bucket(self):
-        service = self.define_external_service("create_minio_buckets")
-        self.add_depends(service, [MINIO])
+    def create_s3_bucket(self):
+        service = self.define_external_service("create_s3_buckets")
+        self.add_depends(service, [RUSTFS])
         return service
 
     # No kafka dependency in this cluster
@@ -68,8 +67,8 @@ class Template(BaseTemplate):
         pass
 
     def define_custom_services(self):
-        self.create_minio_container()
-        self.create_minio_bucket()
+        self.create_s3_container()
+        self.create_s3_bucket()
 
 
 generate(__file__, Template())

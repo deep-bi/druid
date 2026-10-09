@@ -17,7 +17,7 @@
  * under the License.
  */
 
-package org.apache.druid.testing.embedded.minio;
+package org.apache.druid.testing.embedded.s3;
 
 import com.amazonaws.auth.AWSStaticCredentialsProvider;
 import com.amazonaws.auth.BasicAWSCredentials;
@@ -25,44 +25,50 @@ import com.amazonaws.client.builder.AwsClientBuilder;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3Client;
 import org.apache.druid.common.aws.AWSModule;
+import org.apache.druid.java.util.common.StringUtils;
 import org.apache.druid.storage.s3.S3StorageDruidModule;
 import org.apache.druid.testing.embedded.EmbeddedDruidCluster;
 import org.apache.druid.testing.embedded.TestcontainerResource;
-import org.testcontainers.containers.MinIOContainer;
+import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.containers.wait.strategy.Wait;
+import org.testcontainers.utility.DockerImageName;
 
 /**
- * A MinIO container resource for use in embedded tests as deep storage.
- * Sets up MinIO as S3-compatible storage and configures Druid's S3 connector.
+ * An S3-compatible storage container resource for use in embedded tests as deep storage.
+ * Runs <a href="https://github.com/rustfs/rustfs">RustFS</a> and configures Druid's S3 connector to use it.
  */
-public class MinIOStorageResource extends TestcontainerResource<MinIOContainer>
+public class S3StorageResource extends TestcontainerResource<GenericContainer<?>>
 {
-  private static final String MINIO_IMAGE = "minio/minio:latest";
+  private static final DockerImageName IMAGE = DockerImageName.parse("rustfs/rustfs:1.0.0");
+  private static final int S3_PORT = 9000;
   private static final String DEFAULT_BUCKET = "druid-deep-storage";
   private static final String DEFAULT_BASE_KEY = "druid/segments";
-  private static final String ACCESS_KEY = "minioadmin";
-  private static final String SECRET_KEY = "minioadmin";
+  private static final String ACCESS_KEY = "rustfsadmin";
+  private static final String SECRET_KEY = "rustfsadmin";
 
   private final String bucket;
   private final String baseKey;
   private AmazonS3 s3Client;
 
-  public MinIOStorageResource()
+  public S3StorageResource()
   {
     this(DEFAULT_BUCKET, DEFAULT_BASE_KEY);
   }
 
-  public MinIOStorageResource(String bucket, String baseKey)
+  public S3StorageResource(String bucket, String baseKey)
   {
     this.bucket = bucket;
     this.baseKey = baseKey;
   }
 
   @Override
-  protected MinIOContainer createContainer()
+  protected GenericContainer<?> createContainer()
   {
-    return new MinIOContainer(MINIO_IMAGE)
-        .withUserName(getAccessKey())
-        .withPassword(getSecretKey());
+    return new GenericContainer<>(IMAGE)
+        .withExposedPorts(S3_PORT)
+        .withEnv("RUSTFS_ACCESS_KEY", getAccessKey())
+        .withEnv("RUSTFS_SECRET_KEY", getSecretKey())
+        .waitingFor(Wait.forHttp("/health/ready").forPort(S3_PORT));
   }
 
   @Override
@@ -115,7 +121,7 @@ public class MinIOStorageResource extends TestcontainerResource<MinIOContainer>
   public String getEndpointUrl()
   {
     ensureRunning();
-    return getContainer().getS3URL();
+    return StringUtils.format("http://%s:%d", getContainer().getHost(), getContainer().getMappedPort(S3_PORT));
   }
 
   public AmazonS3 getS3Client()
