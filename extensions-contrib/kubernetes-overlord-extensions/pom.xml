@@ -33,6 +33,10 @@
     <relativePath>../../pom.xml</relativePath>
   </parent>
 
+  <properties>
+    <fabric8.version>6.14.0</fabric8.version>
+  </properties>
+
   <dependencyManagement>
       <dependencies>
             <!-- snakeyaml explicitly pinned to version 1.33 as it is
@@ -115,7 +119,7 @@
     <dependency>
       <groupId>io.fabric8</groupId>
       <artifactId>kubernetes-model-core</artifactId>
-      <version>6.7.2</version>
+      <version>${fabric8.version}</version>
     </dependency>
     <dependency>
       <groupId>jakarta.validation</groupId>
@@ -125,17 +129,17 @@
     <dependency>
       <groupId>io.fabric8</groupId>
       <artifactId>kubernetes-model-batch</artifactId>
-      <version>6.7.2</version>
+      <version>${fabric8.version}</version>
     </dependency>
     <dependency>
       <groupId>io.fabric8</groupId>
       <artifactId>kubernetes-client-api</artifactId>
-      <version>6.7.2</version>
+      <version>${fabric8.version}</version>
     </dependency>
     <dependency>
       <groupId>io.fabric8</groupId>
       <artifactId>kubernetes-client</artifactId>
-      <version>6.7.2</version>
+      <version>${fabric8.version}</version>
       <scope>runtime</scope>
     </dependency>
     <dependency>
@@ -173,13 +177,13 @@
     <dependency>
       <groupId>io.fabric8</groupId>
       <artifactId>kubernetes-server-mock</artifactId>
-      <version>6.4.1</version>
+      <version>${fabric8.version}</version>
       <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>io.fabric8</groupId>
       <artifactId>mockwebserver</artifactId>
-      <version>0.2.2</version>
+      <version>${fabric8.version}</version>
       <scope>test</scope>
     </dependency>
     <dependency>
