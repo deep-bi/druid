@@ -1,0 +1,49 @@
+{
+  "type": "index_parallel",
+  "spec": {
+    "dataSchema": {
+      "dataSource": "complex_hll_datasource",
+      "timestampSpec": {
+        "column": "t",
+        "format": "iso"
+      },
+      "dimensionsSpec": {
+        "dimensions": [
+          "hll_dim"
+        ]
+      },
+      "metricsSpec": [
+        {
+          "type": "longSum",
+          "name": "cnt",
+          "fieldName": "cnt"
+        },
+        {
+          "type": "hyperUnique",
+          "name": "unique_dim1",
+          "fieldName": "hll_dim"
+        }
+      ],
+      "granularitySpec": {
+        "type": "uniform",
+        "segmentGranularity": "all",
+        "queryGranularity": "none",
+        "intervals": [
+          "2000-01-01/2000-01-03"
+        ],
+        "rollup": false
+      }
+    },
+    "ioConfig": {
+      "type": "index_parallel",
+      "inputSource": {
+        "type": "local",
+        "baseDir": "multi-stage-query/src/test/resources/complex-hll-dataset",
+        "filter": "complex-hll-data.jsonl"
+      },
+      "inputFormat": {
+        "type": "json"
+      }
+    }
+  }
+}
