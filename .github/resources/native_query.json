@@ -1,0 +1,41 @@
+{
+  "queryType": "groupBy",
+  "dataSource": {
+    "type": "table",
+    "name": "wikipedia"
+  },
+  "intervals": {
+    "type": "intervals",
+    "intervals": ["-146136543-09-08T08:23:32.096Z/146140482-04-24T15:36:27.903Z"]
+  },
+  "granularity": {
+    "type": "all"
+  },
+  "dimensions": [
+    {
+      "type": "default",
+      "dimension": "channel",
+      "outputName": "d0",
+      "outputType": "STRING"
+    }
+  ],
+  "aggregations": [
+    {
+      "type": "count",
+      "name": "a0"
+    }
+  ],
+  "limitSpec": {
+    "type": "default",
+    "columns": [
+      {
+        "dimension": "a0",
+        "direction": "ascending",
+        "dimensionOrder": {
+          "type": "numeric"
+        }
+      }
+    ],
+    "limit": 40
+  }
+}
