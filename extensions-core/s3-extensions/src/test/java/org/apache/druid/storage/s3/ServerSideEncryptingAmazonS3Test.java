@@ -19,6 +19,8 @@
 
 package org.apache.druid.storage.s3;
 
+import org.apache.druid.common.aws.AWSClientConfig;
+import org.apache.druid.common.aws.AWSEndpointConfig;
 import org.easymock.Capture;
 import org.easymock.EasyMock;
 import org.junit.Assert;
@@ -26,6 +28,8 @@ import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
+import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
+import software.amazon.awssdk.core.checksums.RequestChecksumCalculation;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3AsyncClient;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -252,6 +256,55 @@ public class ServerSideEncryptingAmazonS3Test
 
     Assert.assertNotNull(s3);
     Assert.assertEquals(builtClient, s3.getS3Client());
+  }
+
+  @Test
+  public void testBuilderConfiguresLegacyMd5ForSyncAndAsyncClients() throws ReflectiveOperationException
+  {
+    final AWSClientConfig clientConfig = new AWSClientConfig()
+    {
+      @Override
+      public boolean isEnableLegacyMd5()
+      {
+        return true;
+      }
+    };
+    final AWSEndpointConfig endpointConfig = new AWSEndpointConfig()
+    {
+      @Override
+      public String getSigningRegion()
+      {
+        return "us-east-1";
+      }
+    };
+    final S3TransferConfig transferConfig = new S3TransferConfig();
+    transferConfig.setUseTransferManager(false);
+    final ServerSideEncryptingAmazonS3 s3 = ServerSideEncryptingAmazonS3.builder(
+        AnonymousCredentialsProvider.create(),
+        new S3StorageConfig(null, transferConfig),
+        null,
+        endpointConfig,
+        clientConfig,
+        null,
+        null
+    ).build();
+    final Field asyncClientField = ServerSideEncryptingAmazonS3.class.getDeclaredField("s3AsyncClient");
+    asyncClientField.setAccessible(true);
+
+    try (
+        final S3Client client = s3.getS3Client();
+        final S3AsyncClient asyncClient = (S3AsyncClient) asyncClientField.get(s3)
+    ) {
+      Assert.assertNotNull(asyncClient);
+      Assert.assertSame(
+          RequestChecksumCalculation.WHEN_REQUIRED,
+          client.serviceClientConfiguration().requestChecksumCalculation()
+      );
+      Assert.assertSame(
+          RequestChecksumCalculation.WHEN_REQUIRED,
+          asyncClient.serviceClientConfiguration().requestChecksumCalculation()
+      );
+    }
   }
 
   @Test

@@ -380,6 +380,9 @@ public class ServerSideEncryptingAmazonS3
                         .crossRegionAccessEnabled(awsClientConfig.isCrossRegionAccessEnabled())
                         .httpClientBuilder(AsyncHttpClientType.fromString(s3StorageConfig.getS3TransferConfig().getAsyncHttpClientType()).buildBuilder(awsClientConfig))
                         .multipartEnabled(true);
+
+      S3Utils.configureLegacyMd5(clientBuilder, awsClientConfig);
+      S3Utils.configureLegacyMd5(asyncClientBuilder, awsClientConfig);
     }
 
     // Configure HTTP client with proxy if needed
