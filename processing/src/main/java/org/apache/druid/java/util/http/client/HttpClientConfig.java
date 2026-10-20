@@ -19,6 +19,7 @@
 
 package org.apache.druid.java.util.http.client;
 
+import org.apache.druid.java.util.http.client.pool.ResourcePool;
 import org.apache.druid.utils.JvmUtils;
 import org.joda.time.Duration;
 import org.joda.time.Period;
@@ -82,6 +83,7 @@ public class HttpClientConfig
 
   private final int numConnections;
   private final boolean eagerInitialization;
+  private final ResourcePool.Implementation poolImplementation;
   private final SSLContext sslContext;
   private final HttpClientProxyConfig proxyConfig;
   private final Duration readTimeout;
@@ -94,6 +96,7 @@ public class HttpClientConfig
   private HttpClientConfig(
       int numConnections,
       boolean eagerInitialization,
+      ResourcePool.Implementation poolImplementation,
       SSLContext sslContext,
       HttpClientProxyConfig proxyConfig,
       Duration readTimeout,
@@ -106,6 +109,7 @@ public class HttpClientConfig
   {
     this.numConnections = numConnections;
     this.eagerInitialization = eagerInitialization;
+    this.poolImplementation = poolImplementation;
     this.sslContext = sslContext;
     this.proxyConfig = proxyConfig;
     this.readTimeout = readTimeout;
@@ -124,6 +128,11 @@ public class HttpClientConfig
   public boolean isEagerInitialization()
   {
     return eagerInitialization;
+  }
+
+  public ResourcePool.Implementation getPoolImplementation()
+  {
+    return poolImplementation;
   }
 
   public SSLContext getSslContext()
@@ -170,6 +179,7 @@ public class HttpClientConfig
   {
     private int numConnections = 1;
     private boolean eagerInitialization = true;
+    private ResourcePool.Implementation poolImplementation = ResourcePool.Implementation.ADAPTIVE;
     private SSLContext sslContext = null;
     private HttpClientProxyConfig proxyConfig = null;
     private Duration readTimeout = null;
@@ -192,6 +202,12 @@ public class HttpClientConfig
     public Builder withEagerInitialization(boolean eagerInitialization)
     {
       this.eagerInitialization = eagerInitialization;
+      return this;
+    }
+
+    public Builder withPoolImplementation(ResourcePool.Implementation poolImplementation)
+    {
+      this.poolImplementation = poolImplementation;
       return this;
     }
 
@@ -242,6 +258,7 @@ public class HttpClientConfig
       return new HttpClientConfig(
           numConnections,
           eagerInitialization,
+          poolImplementation,
           sslContext,
           proxyConfig,
           readTimeout,
