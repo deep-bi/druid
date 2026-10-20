@@ -1816,6 +1816,22 @@ client has the following configuration options.
 |`druid.broker.http.poolImplementation`|How the connection pool tracks demand, never exceeding `numConnections` either way. With `adaptive`, a query discards every stale or broken connection it walks past and opens a new one only once none is left, so the pool falls back to the number of connections the traffic actually needs. With `retaining`, the pool holds on to every connection it has opened, replacing a stale or broken one by a fresh one, one for one, so it stays at its high-water mark.|`adaptive`|
 
 
+The Broker HTTP client also cleans up abandoned destinations, such as completed ingestion tasks.
+A destination becomes eligible after no requests are waiting, creating connections, or using its pool,
+followed by an idle period of ten times `druid.broker.http.unusedConnectionTimeout` (40 minutes by default).
+Returns and failed acquisition attempts restart this idle period. Cleanup is checked during outgoing requests,
+at most once per `unusedConnectionTimeout`; requests to any destination can trigger it. It does not require
+the pool monitor, and collecting metrics does not trigger cleanup. A completely quiet client retains its
+entries until another outgoing request or client shutdown.
+
+Cleanup closes idle resources before removing their destination entry. Failed closes are retained for retry
+on later cleanup passes or shutdown, while other resources and destinations continue to be cleaned up.
+A request to a retired destination retries cleanup before creating its replacement pool; if cleanup still
+fails, that request fails rather than opening a second pool for the same destination. Cleanup runs on the
+request thread, so retiring many destinations can add latency to the triggering request. The Netty clients
+configured by `druid.global.http` use the same cleanup rules.
+
+
 ##### Retry policy
 
 Druid broker can optionally retry queries internally for transient errors.
