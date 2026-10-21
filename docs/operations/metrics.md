@@ -545,8 +545,11 @@ These metrics are only available if the `HttpClientPoolMonitor` module is includ
 They cover the connection pools that Druid services use to talk to each other, one emission per remote end. The
 `server` dimension is that remote end, and the `httpClient` dimension names the client that pools the connections to
 it: `client` and `escalatedClient` are configured by `druid.broker.http`, `global` and `escalatedGlobal` by
-`druid.global.http`. A remote end that a service has stopped talking to keeps being reported, with zeroes, until the
-service is restarted.
+`druid.global.http`. A remote end with no traffic continues to report its current `idle` and `used` gauges,
+while its event counters return to zero. After an abandoned destination is cleaned up, it stops being reported.
+Final event counts for removed entries are not retained for a later emission. A failed close keeps the retired
+entry reachable for cleanup retries, but that failed resource is not included in its `idle` or `used` gauges.
+Metric collection does not trigger connection cleanup.
 
 |Metric|Description|Dimensions|Normal value|
 |------|-----------|----------|------------|
