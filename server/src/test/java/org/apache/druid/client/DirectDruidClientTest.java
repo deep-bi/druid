@@ -415,16 +415,28 @@ public class DirectDruidClientTest
   @Test
   public void testCloseActiveResponseDiscardsRemainingChunks() throws IOException
   {
-    assertCloseDiscardsRemainingChunks(false);
+    assertCloseDiscardsRemainingChunks(false, new byte[]{1});
   }
 
   @Test
   public void testCloseCompletedResponseDiscardsRemainingChunks() throws IOException
   {
-    assertCloseDiscardsRemainingChunks(true);
+    assertCloseDiscardsRemainingChunks(true, new byte[]{1});
   }
 
-  private void assertCloseDiscardsRemainingChunks(final boolean completed) throws IOException
+  @Test
+  public void testCloseActiveResponseDiscardsPartiallyConsumedChunk() throws IOException
+  {
+    assertCloseDiscardsRemainingChunks(false, new byte[]{1, 3});
+  }
+
+  @Test
+  public void testCloseCompletedResponseDiscardsPartiallyConsumedChunk() throws IOException
+  {
+    assertCloseDiscardsRemainingChunks(true, new byte[]{1, 3});
+  }
+
+  private void assertCloseDiscardsRemainingChunks(final boolean completed, final byte[] firstChunk) throws IOException
   {
     final HttpClient httpClient = Mockito.mock(HttpClient.class);
     final HttpResponseHandler.TrafficCop trafficCop = Mockito.mock(HttpResponseHandler.TrafficCop.class);
@@ -432,7 +444,7 @@ public class DirectDruidClientTest
     Mockito.doAnswer(invocation -> {
       final HttpResponseHandler<InputStream, InputStream> handler = invocation.getArgument(1);
       final HttpResponse response = new DefaultHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.OK);
-      response.setContent(ChannelBuffers.wrappedBuffer(new byte[]{1}));
+      response.setContent(ChannelBuffers.wrappedBuffer(firstChunk));
       final ClientResponse<InputStream> body = handler.handleResponse(response, trafficCop);
       handler.handleChunk(body, new DefaultHttpChunk(ChannelBuffers.wrappedBuffer(new byte[]{2})), 1);
       if (completed) {
