@@ -32,6 +32,8 @@ import org.apache.druid.java.util.common.guava.Sequence;
 import org.apache.druid.java.util.emitter.service.ServiceEmitter;
 import org.apache.druid.java.util.http.client.HttpClient;
 import org.apache.druid.java.util.http.client.Request;
+import org.apache.druid.java.util.http.client.response.ClientResponse;
+import org.apache.druid.java.util.http.client.response.HttpResponseHandler;
 import org.apache.druid.java.util.metrics.StubServiceEmitter;
 import org.apache.druid.query.Druids;
 import org.apache.druid.query.NestedDataTestUtils;
@@ -55,8 +57,15 @@ import org.apache.druid.server.coordinator.simulate.WrappingScheduledExecutorSer
 import org.apache.druid.server.metrics.NoopServiceEmitter;
 import org.apache.druid.timeline.DataSegment;
 import org.apache.druid.timeline.SegmentId;
+import org.jboss.netty.buffer.ChannelBuffers;
+import org.jboss.netty.handler.codec.http.DefaultHttpChunk;
+import org.jboss.netty.handler.codec.http.DefaultHttpResponse;
 import org.jboss.netty.handler.codec.http.HttpMethod;
+import org.jboss.netty.handler.codec.http.HttpResponse;
+import org.jboss.netty.handler.codec.http.HttpResponseStatus;
+import org.jboss.netty.handler.codec.http.HttpVersion;
 import org.jboss.netty.handler.timeout.ReadTimeoutException;
+import org.joda.time.Duration;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -64,6 +73,7 @@ import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
+import org.mockito.Mockito;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -76,6 +86,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class DirectDruidClientTest
 {
@@ -399,6 +410,49 @@ public class DirectDruidClientTest
             queryPlus.getQuery().getId()
         ),
         actualException.getMessage());
+  }
+
+  @Test
+  public void testCloseActiveResponseDiscardsRemainingChunks() throws IOException
+  {
+    assertCloseDiscardsRemainingChunks(false);
+  }
+
+  @Test
+  public void testCloseCompletedResponseDiscardsRemainingChunks() throws IOException
+  {
+    assertCloseDiscardsRemainingChunks(true);
+  }
+
+  private void assertCloseDiscardsRemainingChunks(final boolean completed) throws IOException
+  {
+    final HttpClient httpClient = Mockito.mock(HttpClient.class);
+    final HttpResponseHandler.TrafficCop trafficCop = Mockito.mock(HttpResponseHandler.TrafficCop.class);
+    final AtomicReference<InputStream> stream = new AtomicReference<>();
+    Mockito.doAnswer(invocation -> {
+      final HttpResponseHandler<InputStream, InputStream> handler = invocation.getArgument(1);
+      final HttpResponse response = new DefaultHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.OK);
+      response.setContent(ChannelBuffers.wrappedBuffer(new byte[]{1}));
+      final ClientResponse<InputStream> body = handler.handleResponse(response, trafficCop);
+      handler.handleChunk(body, new DefaultHttpChunk(ChannelBuffers.wrappedBuffer(new byte[]{2})), 1);
+      if (completed) {
+        handler.done(body);
+      }
+      stream.set(body.getObj());
+      return Futures.immediateFuture(body.getObj());
+    }).when(httpClient).go(
+        Mockito.any(Request.class),
+        Mockito.any(HttpResponseHandler.class),
+        Mockito.any(Duration.class)
+    );
+
+    makeDirectDruidClient(httpClient).run(getQueryPlus(), responseContext);
+    final InputStream response = stream.get();
+    Assert.assertEquals(1, response.read());
+    response.close();
+
+    Assert.assertEquals("Closing must discard the remaining response even after done()", -1, response.read());
+    Mockito.verify(trafficCop).abort();
   }
 
   private DirectDruidClient makeDirectDruidClient(HttpClient httpClient)
