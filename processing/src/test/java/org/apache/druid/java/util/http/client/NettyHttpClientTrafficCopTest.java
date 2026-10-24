@@ -147,10 +147,14 @@ public class NettyHttpClientTrafficCopTest
       Assertions.assertFalse(channel.isReadable(), "The next response must have suspended reads");
 
       Assertions.assertEquals(0, first.trafficCop.get().resume(0));
-      fixture.server.send(chunk("b") + LAST_CHUNK, true);
+      fixture.server.send(chunk("b"), false);
       Assertions.assertThrows(TimeoutException.class, () -> secondResponse.get(1, TimeUnit.SECONDS));
 
       second.trafficCop.get().resume(0);
+      Assertions.assertTrue(second.chunkReceived.await(5, TimeUnit.SECONDS));
+      Assertions.assertTrue(channel.getPipeline().execute(() -> {}).await(5, TimeUnit.SECONDS));
+      Assertions.assertTrue(channel.isReadable(), "Reading a data chunk must not suspend reads again");
+      fixture.server.send(LAST_CHUNK, true);
       Assertions.assertEquals("b", secondResponse.get(5, TimeUnit.SECONDS).getContent());
     }
   }
@@ -181,6 +185,7 @@ public class NettyHttpClientTrafficCopTest
     private final boolean suspendOnResponse;
     final AtomicReference<TrafficCop> trafficCop = new AtomicReference<>();
     final CountDownLatch responseReceived = new CountDownLatch(1);
+    final CountDownLatch chunkReceived = new CountDownLatch(1);
 
     ResponseHandler(final boolean suspendOnResponse)
     {
@@ -203,7 +208,9 @@ public class NettyHttpClientTrafficCopTest
         final long chunkNum
     )
     {
-      return delegate.handleChunk(response, chunk, chunkNum);
+      final ClientResponse<StringFullResponseHolder> result = delegate.handleChunk(response, chunk, chunkNum);
+      chunkReceived.countDown();
+      return new ClientResponse<>(result.isFinished(), true, result.getObj());
     }
 
     @Override
@@ -236,6 +243,7 @@ public class NettyHttpClientTrafficCopTest
                           .build(),
           lifecycle
       );
+      lifecycle.start();
       request = new Request(
           HttpMethod.GET,
           new URI("http://localhost:" + server.listener.getLocalPort() + "/").toURL()

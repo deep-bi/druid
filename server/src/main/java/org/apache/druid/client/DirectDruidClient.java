@@ -329,11 +329,16 @@ public class DirectDruidClient<T> implements QueryRunner<T>
                  * discard buffered chunks and abort the response if it is still active.
                  */
                 @Override
-                public void close()
+                public void close() throws IOException
                 {
                   discard.set(true);
                   queue.clear();
-                  trafficCop.abort();
+                  try {
+                    super.close();
+                  }
+                  finally {
+                    trafficCop.abort();
+                  }
                 }
               },
               continueReading
