@@ -522,11 +522,16 @@ public class DirectDruidClient<T> implements QueryRunner<T>
                  * we want to avoid. Instead, abandon the response and force-close the connection
                  */
                 @Override
-                public void close()
+                public void close() throws IOException
                 {
                   discard.set(true);
                   queue.clear();
-                  trafficCop.abort();
+                  try {
+                    super.close();
+                  }
+                  finally {
+                    trafficCop.abort();
+                  }
                 }
               },
               continueReading

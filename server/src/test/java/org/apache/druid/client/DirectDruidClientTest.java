@@ -94,6 +94,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class DirectDruidClientTest
 {
@@ -836,6 +837,125 @@ public class DirectDruidClientTest
         e.getMessage()
     );
     Assertions.assertTrue(e.getMessage().contains(hostName), e.getMessage());
+  }
+
+  @Test
+  public void testCloseActiveResponseDiscardsRemainingChunks() throws IOException
+  {
+    assertCloseDiscardsRemainingChunks(false, new byte[]{1});
+  }
+
+  @Test
+  public void testCloseCompletedResponseDiscardsRemainingChunks() throws IOException
+  {
+    assertCloseDiscardsRemainingChunks(true, new byte[]{1});
+  }
+
+  @Test
+  public void testCloseActiveResponseDiscardsPartiallyConsumedChunk() throws IOException
+  {
+    assertCloseDiscardsRemainingChunks(false, new byte[]{1, 3});
+  }
+
+  @Test
+  public void testCloseCompletedResponseDiscardsPartiallyConsumedChunk() throws IOException
+  {
+    assertCloseDiscardsRemainingChunks(true, new byte[]{1, 3});
+  }
+
+  /**
+   * Reads the first byte of a response whose body arrives as {@code firstChunk} followed by one more chunk, closes the
+   * stream, and checks that nothing else can be read, the unread rest of {@code firstChunk} included, and that the
+   * response is aborted.
+   */
+  private void assertCloseDiscardsRemainingChunks(boolean completed, byte[] firstChunk) throws IOException
+  {
+    final CountingTrafficCop trafficCop = new CountingTrafficCop();
+    final ChunkedHttpClient httpClient = new ChunkedHttpClient(trafficCop, completed, firstChunk, new byte[]{2});
+    makeDirectDruidClient(httpClient).run(getQueryPlus(), responseContext);
+
+    final InputStream response = httpClient.getStream();
+    Assertions.assertEquals(1, response.read());
+    response.close();
+
+    Assertions.assertEquals(-1, response.read(), "Closing must discard the rest of the response");
+    Assertions.assertEquals(1, trafficCop.getAborts());
+  }
+
+  /**
+   * An {@link HttpClient} that delivers a 200 response as the given chunks through the given
+   * {@link HttpResponseHandler.TrafficCop}, calls {@link HttpResponseHandler#done} only when asked to, and keeps the
+   * stream that the handler vends.
+   */
+  private static class ChunkedHttpClient implements HttpClient
+  {
+    private final HttpResponseHandler.TrafficCop trafficCop;
+    private final boolean completed;
+    private final byte[][] chunks;
+    private InputStream stream;
+
+    ChunkedHttpClient(HttpResponseHandler.TrafficCop trafficCop, boolean completed, byte[]... chunks)
+    {
+      this.trafficCop = trafficCop;
+      this.completed = completed;
+      this.chunks = chunks;
+    }
+
+    InputStream getStream()
+    {
+      return stream;
+    }
+
+    @Override
+    public <Intermediate, Final> ListenableFuture<Final> go(Request request, HttpResponseHandler<Intermediate, Final> handler)
+    {
+      return go(request, handler, null);
+    }
+
+    @Override
+    public <Intermediate, Final> ListenableFuture<Final> go(
+        Request request,
+        HttpResponseHandler<Intermediate, Final> handler,
+        Duration readTimeout
+    )
+    {
+      ClientResponse<Intermediate> clientResponse = handler.handleResponse(
+          new DefaultHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.OK),
+          trafficCop
+      );
+      for (int i = 0; i < chunks.length; i++) {
+        clientResponse = handler.handleChunk(clientResponse, new DefaultHttpContent(Unpooled.wrappedBuffer(chunks[i])), i);
+      }
+      if (completed) {
+        handler.done(clientResponse);
+      }
+      stream = (InputStream) clientResponse.getObj();
+      @SuppressWarnings("unchecked")
+      final Final result = (Final) clientResponse.getObj();
+      return Futures.immediateFuture(result);
+    }
+  }
+
+  private static class CountingTrafficCop implements HttpResponseHandler.TrafficCop
+  {
+    private final AtomicInteger aborts = new AtomicInteger();
+
+    @Override
+    public long resume(long chunkNum)
+    {
+      return 0;
+    }
+
+    @Override
+    public void abort()
+    {
+      aborts.incrementAndGet();
+    }
+
+    int getAborts()
+    {
+      return aborts.get();
+    }
   }
 
   /**
