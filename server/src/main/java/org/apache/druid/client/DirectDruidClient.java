@@ -23,7 +23,6 @@ import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.smile.SmileFactory;
 import com.fasterxml.jackson.jaxrs.smile.SmileMediaTypes;
-import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
@@ -186,7 +185,6 @@ public class DirectDruidClient<T> implements QueryRunner<T>
         private final AtomicBoolean discard = new AtomicBoolean(false);
         private final AtomicBoolean nodeMetricsEmitted = new AtomicBoolean(false);
         private final AtomicReference<String> fail = new AtomicReference<>();
-        private final AtomicReference<TrafficCop> trafficCopRef = new AtomicReference<>();
 
         private QueryMetrics<? super Query<T>> queryMetrics;
         private long responseStartTimeNs;
@@ -221,7 +219,7 @@ public class DirectDruidClient<T> implements QueryRunner<T>
           return !usingBackpressure || currentQueuedByteCount < maxQueuedBytes;
         }
 
-        private InputStream dequeue() throws InterruptedException
+        private InputStream dequeue(final TrafficCop trafficCop) throws InterruptedException
         {
           final InputStreamHolder holder = queue.poll(checkQueryTimeout(), TimeUnit.MILLISECONDS);
           if (holder == null) {
@@ -230,8 +228,7 @@ public class DirectDruidClient<T> implements QueryRunner<T>
 
           final long currentQueuedByteCount = queuedByteCount.addAndGet(-holder.getLength());
           if (usingBackpressure && currentQueuedByteCount < maxQueuedBytes) {
-            long backPressureTime = Preconditions.checkNotNull(trafficCopRef.get(), "No TrafficCop, how can this be?")
-                                                 .resume(holder.getChunkNum());
+            final long backPressureTime = trafficCop.resume(holder.getChunkNum());
             channelSuspendedTime.addAndGet(backPressureTime);
           }
 
@@ -241,7 +238,6 @@ public class DirectDruidClient<T> implements QueryRunner<T>
         @Override
         public ClientResponse<InputStream> handleResponse(HttpResponse response, TrafficCop trafficCop)
         {
-          trafficCopRef.set(trafficCop);
           checkQueryTimeout();
           checkTotalBytesLimit(response.getContent().readableBytes());
 
@@ -317,7 +313,7 @@ public class DirectDruidClient<T> implements QueryRunner<T>
                       }
 
                       try {
-                        return dequeue();
+                        return dequeue(trafficCop);
                       }
                       catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
@@ -329,26 +325,14 @@ public class DirectDruidClient<T> implements QueryRunner<T>
               {
                 /**
                  * Closing this stream means the caller no longer needs the response. The default
-                 * {@link SequenceInputStream#close()} would drain the entire remaining response off the wire first
-                 * we want to avoid. Instead, abandon the response and force-close the connection
+                 * {@link SequenceInputStream#close()} would drain the remaining response before closing. Instead,
+                 * discard buffered chunks and abort the response if it is still active.
                  */
                 @Override
                 public void close()
                 {
-                  final TrafficCop trafficCop;
-                  synchronized (done) {
-                    if (done.get()) {
-                      return;
-                    }
-                    // Stop buffering further chunks (see enqueue()) and drop anything already buffered so the
-                    // underlying Netty ChannelBuffers can be released.
-                    discard.set(true);
-                    queue.clear();
-                    trafficCop = trafficCopRef.get();
-                  }
-                  if (trafficCop == null) {
-                    return;
-                  }
+                  discard.set(true);
+                  queue.clear();
                   trafficCop.abort();
                 }
               },

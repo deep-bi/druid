@@ -203,6 +203,7 @@ public class NettyHttpClient extends AbstractHttpClient
           private final Object watermarkLock = new Object();
           private long suspendWatermark = -1;
           private long resumeWatermark = -1;
+          private boolean returnedToPool = false;
 
           @Override
           public void messageReceived(ChannelHandlerContext ctx, MessageEvent e)
@@ -230,6 +231,9 @@ public class NettyHttpClient extends AbstractHttpClient
                   public long resume(long resumeChunkNum)
                   {
                     synchronized (watermarkLock) {
+                      if (returnedToPool) {
+                        return 0;
+                      }
                       resumeWatermark = Math.max(resumeWatermark, resumeChunkNum);
 
                       if (suspendWatermark >= 0 && resumeWatermark >= suspendWatermark) {
@@ -247,8 +251,8 @@ public class NettyHttpClient extends AbstractHttpClient
                   @Override
                   public void abort()
                   {
-                    log.debug("[%s] Aborted connection at caller's request.", requestDesc);
-                    channel.close();
+                    // Netty 3 runs this on the channel's I/O thread, ordered against finishRequest returning it.
+                    channel.getPipeline().execute(() -> closeUnlessReturnedToPool());
                   }
                 };
 
@@ -337,7 +341,20 @@ public class NettyHttpClient extends AbstractHttpClient
             }
             removeHandlers();
             channel.setReadable(true);
+            synchronized (watermarkLock) {
+              returnedToPool = true;
+            }
             channelResourceContainer.returnResource();
+          }
+
+          private void closeUnlessReturnedToPool()
+          {
+            synchronized (watermarkLock) {
+              if (!returnedToPool) {
+                log.debug("[%s] Aborted connection at caller's request.", requestDesc);
+                channel.close();
+              }
+            }
           }
 
           @Override
