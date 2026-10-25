@@ -24,11 +24,16 @@ import org.junit.Assert;
 import org.junit.Test;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -209,6 +214,110 @@ public class AppendableByteArrayInputStreamTest
     Assert.assertEquals(1, in.read());
     Assert.assertEquals(0, in.available());
     Assert.assertEquals(-1, in.read());
+  }
+
+  @Test
+  public void testAvailableSaturatesInsteadOfOverflowing() throws IOException
+  {
+    final AppendableByteArrayInputStream in = new AppendableByteArrayInputStream();
+
+    // Queue the same array repeatedly to account for 2 GiB without allocating that much memory.
+    final byte[] oneMebibyte = new byte[1024 * 1024];
+    for (int i = 0; i < 2048; i++) {
+      in.add(oneMebibyte);
+    }
+
+    Assert.assertEquals(Integer.MAX_VALUE, in.available());
+    Assert.assertEquals(oneMebibyte.length, in.read(new byte[oneMebibyte.length]));
+    Assert.assertEquals((2048L - 1) * oneMebibyte.length, (long) in.available());
+  }
+
+  @Test
+  public void testExceptionCaughtReleasesQueuedBytes() throws IOException
+  {
+    final AppendableByteArrayInputStream in = new AppendableByteArrayInputStream();
+    in.add(new byte[10]);
+    in.add(new byte[8192]);
+    Assert.assertEquals(5, in.read(new byte[5]));
+
+    in.exceptionCaught(new IOException("connection reset"));
+
+    Assert.assertEquals(0, in.available());
+    Assert.assertEquals("the chunk being read is still handed out", 5, in.read(new byte[5]));
+    Assert.assertEquals(0, in.available());
+    Assert.assertThrows(IOException.class, () -> in.read(new byte[8192]));
+  }
+
+  @Test
+  public void testCloseDiscardsQueuedAndLaterChunks() throws IOException
+  {
+    final AppendableByteArrayInputStream in = new AppendableByteArrayInputStream();
+    in.add(new byte[8192]);
+    in.add(new byte[8192]);
+
+    in.close();
+    in.add(new byte[8192]);
+
+    Assert.assertEquals(0, in.available());
+    Assert.assertThrows(IOException.class, in::read);
+  }
+
+  @Test
+  public void testFailureWithoutQueuedBytesThrows()
+  {
+    final AppendableByteArrayInputStream in = new AppendableByteArrayInputStream();
+    final IOException failure = new IOException("connection reset");
+    in.exceptionCaught(failure);
+
+    Assert.assertSame(failure, Assert.assertThrows(IOException.class, in::read).getCause());
+  }
+
+  @Test
+  public void testDoneDiscardsLaterChunks() throws IOException
+  {
+    final AppendableByteArrayInputStream in = new AppendableByteArrayInputStream();
+    in.add(new byte[]{1});
+    in.done();
+    in.add(new byte[]{2});
+
+    Assert.assertEquals(1, in.available());
+    Assert.assertEquals(1, in.read());
+    Assert.assertEquals(-1, in.read());
+  }
+
+  @Test
+  public void testCloseUnblocksAllWaitingReaders() throws Exception
+  {
+    final AppendableByteArrayInputStream in = new AppendableByteArrayInputStream();
+    final List<Thread> readers = new ArrayList<>();
+    final ExecutorService executor = Executors.newFixedThreadPool(2, task -> {
+      final Thread reader = new Thread(task, "appendable-stream-reader-" + readers.size());
+      readers.add(reader);
+      return reader;
+    });
+    try {
+      final Callable<Integer> read = in::read;
+      final List<Future<Integer>> results = List.of(executor.submit(read), executor.submit(read));
+      final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+      while (readers.stream().anyMatch(reader -> reader.getState() != Thread.State.WAITING)) {
+        Assert.assertTrue("Readers did not block on the stream", System.nanoTime() < deadline);
+        Thread.sleep(1);
+      }
+
+      in.close();
+
+      for (final Future<Integer> result : results) {
+        final ExecutionException error = Assert.assertThrows(
+            ExecutionException.class,
+            () -> result.get(5, TimeUnit.SECONDS)
+        );
+        Assert.assertTrue(error.getCause() instanceof IOException);
+      }
+    }
+    finally {
+      executor.shutdownNow();
+      Assert.assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
+    }
   }
 
   @Test
