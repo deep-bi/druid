@@ -19,6 +19,7 @@
 
 package org.apache.druid.java.util.http.client.pool;
 
+import com.google.common.cache.LoadingCache;
 import com.google.common.testing.FakeTicker;
 import com.google.common.util.concurrent.UncheckedExecutionException;
 import org.apache.druid.java.util.common.ISE;
@@ -32,6 +33,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
 import javax.annotation.Nullable;
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -40,6 +42,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -839,6 +842,104 @@ public class ResourcePoolTest
       exec.shutdownNow();
       pool.close();
     }
+  }
+
+  @ParameterizedTest
+  @EnumSource(ResourcePool.Implementation.class)
+  public void testLastWaitingAcquisitionRemovesClosedDestinationAfterShutdown(
+      final ResourcePool.Implementation implementation
+  ) throws Exception
+  {
+    final ResourcePool<String, String> pool = createPool(implementation, 1, NEVER_EXPIRES, false);
+    final ResourceContainer<String> loan = pool.take("old");
+    final Object lifecycle = lifecycleLock(pool, "old");
+    final BackgroundTake waiter = BackgroundTake.start(pool, "old");
+    boolean returned = false;
+    try {
+      awaitWaiting(waiter.thread);
+      // Delay the waiter's final reservation release until shutdown and the loan return have finished.
+      synchronized (lifecycle) {
+        pool.close();
+        loan.returnResource();
+        returned = true;
+        Assertions.assertTrue(pool.drainStats().containsKey("old"), "the waiter still holds a reservation");
+      }
+      Assertions.assertNull(waiter.awaitResource());
+      waiter.release();
+      Assertions.assertEquals(List.of("old#0"), factory.closed());
+      Assertions.assertTrue(pool.drainStats().isEmpty(), "the final acquisition must remove the closed destination");
+    }
+    finally {
+      pool.close();
+      if (!returned) {
+        loan.returnResource();
+      }
+      waiter.release();
+      pool.close();
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(ResourcePool.Implementation.class)
+  public void testFailedAcquisitionRemovesClosedDestinationAfterShutdown(
+      final ResourcePool.Implementation implementation
+  ) throws Exception
+  {
+    final ResourcePool<String, String> pool = createPool(implementation, 1, NEVER_EXPIRES, false);
+    pool.take("old").returnResource();
+    final ExecutorService exec = Execs.singleThreaded("failed-acquisition-after-shutdown");
+    final CountDownLatch checking = new CountDownLatch(1);
+    final CountDownLatch proceed = new CountDownLatch(1);
+    final ISE failure = new ISE("Replacement failed after shutdown");
+    factory.markUnhealthy("old#0");
+    factory.beforeHealthCheck = resource -> {
+      checking.countDown();
+      awaitSignal(proceed);
+    };
+    try {
+      final Future<ResourceContainer<String>> acquisition = exec.submit(() -> pool.take("old"));
+      awaitSignal(checking);
+      factory.failGenerate(failure);
+      pool.close();
+      Assertions.assertTrue(pool.drainStats().containsKey("old"), "the pending acquisition still holds a reservation");
+      proceed.countDown();
+      final ExecutionException exception = Assertions.assertThrows(
+          ExecutionException.class,
+          () -> acquisition.get(5, TimeUnit.SECONDS)
+      );
+      Assertions.assertSame(failure, exception.getCause(), "cleanup must preserve the acquisition failure");
+      Assertions.assertEquals(factory.opened(), factory.closed());
+      Assertions.assertTrue(pool.drainStats().isEmpty(), "the failed acquisition must remove the closed destination");
+    }
+    finally {
+      proceed.countDown();
+      exec.shutdownNow();
+      Assertions.assertTrue(exec.awaitTermination(5, TimeUnit.SECONDS));
+      pool.close();
+    }
+  }
+
+  private static Object lifecycleLock(final ResourcePool<?, ?> pool, final Object key)
+      throws ReflectiveOperationException
+  {
+    final Field cacheField = ResourcePool.class.getDeclaredField("pool");
+    cacheField.setAccessible(true);
+    final LoadingCache<?, ?> cache = (LoadingCache<?, ?>) cacheField.get(pool);
+    final Object holder = cache.getIfPresent(key);
+    Assertions.assertNotNull(holder);
+    final Class<?> holderClass = Class.forName(ResourcePool.class.getName() + "$PooledResources");
+    final Field lifecycleField = holderClass.getDeclaredField("lifecycle");
+    lifecycleField.setAccessible(true);
+    return lifecycleField.get(holder);
+  }
+
+  private static void awaitWaiting(final Thread thread) throws InterruptedException
+  {
+    final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+    while (thread.getState() != Thread.State.WAITING && System.nanoTime() < deadline) {
+      Thread.sleep(1);
+    }
+    Assertions.assertEquals(Thread.State.WAITING, thread.getState(), "the acquisition must be waiting for a resource");
   }
 
   private ResourcePool<String, String> timedPool(
