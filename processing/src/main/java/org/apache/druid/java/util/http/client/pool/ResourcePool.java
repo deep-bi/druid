@@ -137,7 +137,16 @@ public class ResourcePool<K, V> implements Closeable
         cacheLifecycle.readLock().unlock();
       }
 
-      final V value = holder.get();
+      final V value;
+      try {
+        value = holder.get();
+      }
+      finally {
+        // A pending acquisition can release the last reservation after shutdown's removal attempt.
+        if (closed.get() && holder.isFullyClosed()) {
+          pool.asMap().remove(key, holder);
+        }
+      }
       if (value == null) {
         if (closed.get() || Thread.currentThread().isInterrupted() || !holder.isRetired()) {
           return null;
