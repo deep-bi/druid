@@ -217,6 +217,20 @@ public class AppendableByteArrayInputStreamTest
   }
 
   @Test
+  public void testSingleByteReadReturnsUnsignedValues() throws IOException
+  {
+    final AppendableByteArrayInputStream in = new AppendableByteArrayInputStream();
+    in.add(new byte[]{(byte) 0x7f, (byte) 0x80, (byte) 0xfe, (byte) 0xff});
+    in.done();
+
+    Assertions.assertEquals(0x7f, in.read());
+    Assertions.assertEquals(0x80, in.read());
+    Assertions.assertEquals(0xfe, in.read());
+    Assertions.assertEquals(0xff, in.read(), "0xff must not be mistaken for end of stream");
+    Assertions.assertEquals(-1, in.read());
+  }
+
+  @Test
   public void testAvailableSaturatesInsteadOfOverflowing() throws IOException
   {
     final AppendableByteArrayInputStream in = new AppendableByteArrayInputStream();
