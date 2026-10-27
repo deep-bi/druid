@@ -22,7 +22,7 @@ package org.apache.druid.client.coordinator;
 import com.google.common.util.concurrent.ListenableFuture;
 import org.apache.druid.client.BootstrapSegmentsResponse;
 import org.apache.druid.client.ImmutableSegmentLoadInfo;
-import org.apache.druid.java.util.common.parsers.CloseableIterator;
+import org.apache.druid.collections.ResourceHolder;
 import org.apache.druid.query.SegmentDescriptor;
 import org.apache.druid.query.lookup.LookupExtractorFactoryContainer;
 import org.apache.druid.rpc.ServiceRetryPolicy;
@@ -36,6 +36,7 @@ import org.joda.time.Interval;
 
 import javax.annotation.Nullable;
 import java.net.URI;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -124,7 +125,7 @@ public class NoopCoordinatorClient implements CoordinatorClient
   }
 
   @Override
-  public ListenableFuture<CloseableIterator<SegmentStatusInCluster>> fetchAllUsedSegmentsWithOvershadowedStatus(
+  public ListenableFuture<ResourceHolder<Iterator<SegmentStatusInCluster>>> fetchAllUsedSegmentsWithOvershadowedStatus(
       @Nullable Set<String> watchedDataSources,
       boolean includeOvershadowed
   )

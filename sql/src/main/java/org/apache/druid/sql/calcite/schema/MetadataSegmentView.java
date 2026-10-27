@@ -28,9 +28,11 @@ import com.google.inject.Inject;
 import org.apache.druid.client.BrokerSegmentWatcherConfig;
 import org.apache.druid.client.DataSegmentInterner;
 import org.apache.druid.client.coordinator.CoordinatorClient;
+import org.apache.druid.collections.ResourceHolder;
 import org.apache.druid.common.guava.FutureUtils;
 import org.apache.druid.concurrent.LifecycleLock;
 import org.apache.druid.guice.ManageLifecycle;
+import org.apache.druid.java.util.common.CloseableIterators;
 import org.apache.druid.java.util.common.ISE;
 import org.apache.druid.java.util.common.concurrent.Execs;
 import org.apache.druid.java.util.common.lifecycle.LifecycleStart;
@@ -41,6 +43,7 @@ import org.apache.druid.metadata.SegmentsMetadataManager;
 import org.apache.druid.timeline.DataSegment;
 import org.apache.druid.timeline.SegmentId;
 import org.apache.druid.timeline.SegmentStatusInCluster;
+import org.apache.druid.utils.CloseableUtils;
 import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 
 import java.util.Iterator;
@@ -134,49 +137,59 @@ public class MetadataSegmentView
   private void poll()
   {
     log.info("Polling segments from coordinator");
-    final CloseableIterator<SegmentStatusInCluster> metadataSegments = getMetadataSegments(
+
+    final ImmutableSortedSet.Builder<SegmentStatusInCluster> builder = ImmutableSortedSet.naturalOrder();
+    final ResourceHolder<Iterator<SegmentStatusInCluster>> metadataSegments = getMetadataSegments(
         coordinatorClient,
         segmentWatcherConfig.getWatchedDataSources()
     );
-
-    final ImmutableSortedSet.Builder<SegmentStatusInCluster> builder = ImmutableSortedSet.naturalOrder();
-    while (metadataSegments.hasNext()) {
-      final SegmentStatusInCluster segment = metadataSegments.next();
-      final DataSegment interned = DataSegmentInterner.intern(segment.getDataSegment());
-      Integer replicationFactor = segment.getReplicationFactor();
-      if (replicationFactor == null) {
-        replicationFactor = segmentIdToReplicationFactor.getIfPresent(segment.getDataSegment().getId());
-      } else {
-        segmentIdToReplicationFactor.put(segment.getDataSegment().getId(), segment.getReplicationFactor());
+    try {
+      final Iterator<SegmentStatusInCluster> segments = metadataSegments.get();
+      while (segments.hasNext()) {
+        final SegmentStatusInCluster segment = segments.next();
+        final DataSegment interned = DataSegmentInterner.intern(segment.getDataSegment());
+        Integer replicationFactor = segment.getReplicationFactor();
+        if (replicationFactor == null) {
+          replicationFactor = segmentIdToReplicationFactor.getIfPresent(segment.getDataSegment().getId());
+        } else {
+          segmentIdToReplicationFactor.put(segment.getDataSegment().getId(), segment.getReplicationFactor());
+        }
+        final SegmentStatusInCluster segmentStatusInCluster = new SegmentStatusInCluster(
+            interned,
+            segment.isOvershadowed(),
+            replicationFactor,
+            segment.getNumRows(),
+            segment.isRealtime()
+        );
+        builder.add(segmentStatusInCluster);
       }
-      final SegmentStatusInCluster segmentStatusInCluster = new SegmentStatusInCluster(
-          interned,
-          segment.isOvershadowed(),
-          replicationFactor,
-          segment.getNumRows(),
-          segment.isRealtime()
+    }
+    finally {
+      CloseableUtils.closeAndSuppressExceptions(
+          metadataSegments,
+          e -> log.warn(e, "Failed to close the segment metadata response from the Coordinator")
       );
-      builder.add(segmentStatusInCluster);
     }
     publishedSegments = builder.build();
     cachePopulated.countDown();
   }
 
-  Iterator<SegmentStatusInCluster> getSegments()
+  CloseableIterator<SegmentStatusInCluster> getSegments()
   {
     if (isCacheEnabled) {
       Uninterruptibles.awaitUninterruptibly(cachePopulated);
-      return publishedSegments.iterator();
+      return CloseableIterators.withEmptyBaggage(publishedSegments.iterator());
     } else {
-      return getMetadataSegments(
+      final ResourceHolder<Iterator<SegmentStatusInCluster>> fetched = getMetadataSegments(
           coordinatorClient,
           segmentWatcherConfig.getWatchedDataSources()
       );
+      return CloseableIterators.wrap(fetched.get(), fetched);
     }
   }
 
   // Note that coordinator must be up to get segments
-  private CloseableIterator<SegmentStatusInCluster> getMetadataSegments(
+  private ResourceHolder<Iterator<SegmentStatusInCluster>> getMetadataSegments(
       CoordinatorClient coordinatorClient,
       Set<String> watchedDataSources
   )
