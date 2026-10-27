@@ -31,6 +31,7 @@ import junitparams.converters.Nullable;
 import org.apache.calcite.DataContext;
 import org.apache.calcite.adapter.java.JavaTypeFactory;
 import org.apache.calcite.jdbc.JavaTypeFactoryImpl;
+import org.apache.calcite.linq4j.Enumerator;
 import org.apache.calcite.linq4j.QueryProvider;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeField;
@@ -146,6 +147,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class SystemSchemaTest extends CalciteTestBase
 {
@@ -611,7 +613,9 @@ public class SystemSchemaTest extends CalciteTestBase
         new SegmentStatusInCluster(segment2, false, 0, null, false)
     ));
 
-    EasyMock.expect(metadataView.getSegments()).andReturn(publishedSegments.iterator()).once();
+    EasyMock.expect(metadataView.getSegments())
+            .andReturn(CloseableIterators.withEmptyBaggage(publishedSegments.iterator()))
+            .once();
 
     EasyMock.replay(request, responseHolder, responseHandler, metadataView);
     DataContext dataContext = createDataContext(Users.SUPER);
@@ -731,7 +735,9 @@ public class SystemSchemaTest extends CalciteTestBase
         new SegmentStatusInCluster(segment2, false, 0, null, false)
     ));
 
-    EasyMock.expect(metadataView.getSegments()).andReturn(publishedSegments.iterator()).once();
+    EasyMock.expect(metadataView.getSegments())
+            .andReturn(CloseableIterators.withEmptyBaggage(publishedSegments.iterator()))
+            .once();
 
     EasyMock.replay(request, responseHolder, responseHandler, metadataView);
     DataContext dataContext = createDataContext(Users.SUPER);
@@ -785,6 +791,42 @@ public class SystemSchemaTest extends CalciteTestBase
                     .add("segment_id", ColumnType.STRING)
                     .build()
     );
+  }
+
+  @Test
+  public void testSegmentsTableReleasesTheCoordinatorResponseWhenClosedEarly()
+  {
+    final SegmentsTable segmentsTable =
+        new SegmentsTable(druidSchema, metadataView, MAPPER, authMapper);
+    final List<SegmentStatusInCluster> publishedSegments = List.of(
+        new SegmentStatusInCluster(segment1, true, 2, null, false),
+        new SegmentStatusInCluster(segment2, false, 0, null, false)
+    );
+    final AtomicBoolean closed = new AtomicBoolean(false);
+
+    EasyMock.expect(metadataView.getSegments())
+            .andReturn(CloseableIterators.wrap(publishedSegments.iterator(), () -> closed.set(true)))
+            .once();
+
+    EasyMock.replay(request, responseHolder, responseHandler, metadataView);
+    final Enumerator<Object[]> rows =
+        segmentsTable.scan(createDataContext(Users.SUPER), Collections.emptyList(), null).enumerator();
+    Assert.assertTrue(rows.moveNext());
+    rows.close();
+
+    Assert.assertTrue(closed.get());
+  }
+
+  @Test
+  public void testSegmentsTableDefersTheCoordinatorFetchUntilRowsAreRead()
+  {
+    final SegmentsTable segmentsTable =
+        new SegmentsTable(druidSchema, metadataView, MAPPER, authMapper);
+
+    EasyMock.replay(request, responseHolder, responseHandler, metadataView);
+    segmentsTable.scan(createDataContext(Users.SUPER), Collections.emptyList(), null).enumerator().close();
+
+    EasyMock.verify(metadataView);
   }
 
   @Test
