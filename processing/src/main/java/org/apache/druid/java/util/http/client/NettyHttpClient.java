@@ -58,6 +58,7 @@ import org.joda.time.Duration;
 import java.net.URL;
 import java.util.Collection;
 import java.util.Map;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -296,11 +297,23 @@ public class NettyHttpClient extends AbstractHttpClient
                   @Override
                   public void abort()
                   {
+                    synchronized (watermarkLock) {
+                      if (returnedToPool) {
+                        return;
+                      }
+                    }
                     // On the event loop, so that it is ordered against finishRequest handing the channel back.
                     if (channel.eventLoop().inEventLoop()) {
                       closeUnlessReturnedToPool();
                     } else {
-                      channel.eventLoop().execute(() -> closeUnlessReturnedToPool());
+                      try {
+                        channel.eventLoop().execute(() -> closeUnlessReturnedToPool());
+                      }
+                      catch (RejectedExecutionException e) {
+                        // The event loop has shut down, which closes its channels, so this one can no longer go back
+                        // to the pool.
+                        log.debug("[%s] Ignored abort after the event loop shut down.", requestDesc);
+                      }
                     }
                   }
                 };

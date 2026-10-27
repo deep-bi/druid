@@ -806,6 +806,59 @@ public class FriendlyServersTest
   }
 
   /**
+   * An abort that arrives after the client has shut down must not throw: the event loop rejects new tasks by then.
+   * This holds both for a response that completed, whose channel went back to the pool, and for one still being read.
+   */
+  @Test
+  public void testAbortAfterEventLoopShutdownIsIgnored() throws Exception
+  {
+    final ExecutorService exec = Executors.newSingleThreadExecutor();
+    final ServerSocket serverSocket = new ServerSocket(0);
+    final BlockingQueue<String> wire = new LinkedBlockingQueue<>();
+    serveChunkedFromWire(exec, serverSocket, wire);
+
+    final Lifecycle lifecycle = new Lifecycle();
+    try {
+      final HttpClient client = HttpClientInit.createClient(
+          HttpClientConfig.builder().withNumConnections(1).build(),
+          lifecycle
+      );
+      // Lifecycle.stop() does nothing unless the lifecycle is running.
+      lifecycle.start();
+      final Request request = new Request(
+          HttpMethod.GET,
+          new URL(StringUtils.format("http://localhost:%d/", serverSocket.getLocalPort()))
+      );
+
+      final CapturingTrafficCop<StringFullResponseHolder, StringFullResponseHolder> completed =
+          new CapturingTrafficCop<>(new StringFullResponseHandler(StandardCharsets.UTF_8));
+      final ListenableFuture<StringFullResponseHolder> completedResponse = client.go(request, completed);
+      wire.put(CHUNKED_OK + chunk("a") + LAST_CHUNK);
+      Assertions.assertEquals("a", completedResponse.get(30, TimeUnit.SECONDS).getContent());
+
+      final CapturingTrafficCop<StringFullResponseHolder, StringFullResponseHolder> active =
+          new CapturingTrafficCop<>(new StringFullResponseHandler(StandardCharsets.UTF_8));
+      client.go(request, active);
+      wire.put(CHUNKED_OK + chunk("b"));
+      final long deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+      while (active.trafficCop.get() == null) {
+        Assertions.assertTrue(System.nanoTime() < deadlineNanos, "The second response never arrived");
+        Thread.sleep(10);
+      }
+
+      // HttpClientInit waits for the event loops to terminate, so they reject every task submitted after this.
+      lifecycle.stop();
+      Assertions.assertDoesNotThrow(() -> completed.trafficCop.get().abort());
+      Assertions.assertDoesNotThrow(() -> active.trafficCop.get().abort());
+    }
+    finally {
+      exec.shutdownNow();
+      serverSocket.close();
+      lifecycle.stop();
+    }
+  }
+
+  /**
    * A resume that arrives once the response is complete must not touch the channel: it is back in the pool, and the
    * next request on it may have suspended reads.
    */
