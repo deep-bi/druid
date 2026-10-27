@@ -19,10 +19,15 @@
 
 package org.apache.druid.java.util.http.client.pool;
 
+import java.util.concurrent.TimeUnit;
+
 /**
  */
 public class ResourcePoolConfig
 {
+  private static final long KEY_ABANDONMENT_TIMEOUT_MULTIPLIER = 10;
+  private static final long DEFAULT_MAINTENANCE_INTERVAL_MILLIS = TimeUnit.MINUTES.toMillis(1);
+
   private final int maxPerKey;
   private final long unusedConnectionTimeoutMillis;
 
@@ -60,5 +65,18 @@ public class ResourcePoolConfig
   public long getUnusedConnectionTimeoutMillis()
   {
     return unusedConnectionTimeoutMillis;
+  }
+
+  public long getMaintenanceIntervalMillis()
+  {
+    return unusedConnectionTimeoutMillis > 0 ? unusedConnectionTimeoutMillis : DEFAULT_MAINTENANCE_INTERVAL_MILLIS;
+  }
+
+  public long getAbandonedKeyTimeoutMillis()
+  {
+    final long interval = getMaintenanceIntervalMillis();
+    return interval > Long.MAX_VALUE / KEY_ABANDONMENT_TIMEOUT_MULTIPLIER
+           ? Long.MAX_VALUE
+           : interval * KEY_ABANDONMENT_TIMEOUT_MULTIPLIER;
   }
 }
