@@ -174,6 +174,30 @@ public class NettyHttpClientTrafficCopTest
     }
   }
 
+  @ParameterizedTest
+  @EnumSource(ResourcePool.Implementation.class)
+  public void testAbortAfterShutdownIsIgnored(final ResourcePool.Implementation implementation) throws Exception
+  {
+    try (final Fixture fixture = new Fixture(implementation)) {
+      final ResponseHandler completed = new ResponseHandler(false);
+      final ListenableFuture<StringFullResponseHolder> completedResponse = fixture.client.go(fixture.request, completed);
+      fixture.server.send(COMPLETE_RESPONSE, true);
+      Assertions.assertEquals("a", completedResponse.get(5, TimeUnit.SECONDS).getContent());
+      fixture.returnedChannel();
+
+      final ResponseHandler active = new ResponseHandler(false);
+      final ListenableFuture<StringFullResponseHolder> activeResponse = fixture.client.go(fixture.request, active);
+      fixture.server.send(CHUNKED_OK + chunk("b"), false);
+      Assertions.assertTrue(active.responseReceived.await(5, TimeUnit.SECONDS));
+
+      // Stopping the lifecycle shuts down the I/O worker, which then rejects scheduled tasks.
+      fixture.lifecycle.stop();
+      Assertions.assertThrows(ExecutionException.class, () -> activeResponse.get(5, TimeUnit.SECONDS));
+      Assertions.assertDoesNotThrow(() -> completed.trafficCop.get().abort());
+      Assertions.assertDoesNotThrow(() -> active.trafficCop.get().abort());
+    }
+  }
+
   private static String chunk(final String data)
   {
     return StringUtils.format("%x\r\n%s\r\n", data.length(), data);

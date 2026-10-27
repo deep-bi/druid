@@ -58,6 +58,7 @@ import org.joda.time.Duration;
 import java.net.URL;
 import java.util.Collection;
 import java.util.Map;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -251,8 +252,19 @@ public class NettyHttpClient extends AbstractHttpClient
                   @Override
                   public void abort()
                   {
-                    // Netty 3 runs this on the channel's I/O thread, ordered against finishRequest returning it.
-                    channel.getPipeline().execute(() -> closeUnlessReturnedToPool());
+                    synchronized (watermarkLock) {
+                      if (returnedToPool) {
+                        return;
+                      }
+                    }
+                    try {
+                      // Netty 3 runs this on the channel's I/O thread, ordered against finishRequest returning it.
+                      channel.getPipeline().execute(() -> closeUnlessReturnedToPool());
+                    }
+                    catch (RejectedExecutionException e) {
+                      // The I/O worker has shut down. It closes its own channels, and can no longer return this one.
+                      log.debug("[%s] Ignored abort after the I/O worker shut down.", requestDesc);
+                    }
                   }
                 };
 
