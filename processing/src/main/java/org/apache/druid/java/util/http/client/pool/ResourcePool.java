@@ -141,14 +141,20 @@ public class ResourcePool<K, V> implements Closeable
       try {
         value = holder.get();
       }
-      finally {
-        // A pending acquisition can release the last reservation after shutdown's removal attempt.
-        if (closed.get() && holder.isFullyClosed()) {
-          pool.asMap().remove(key, holder);
+      catch (Throwable t) {
+        // A failed acquisition can release the last reservation after shutdown's cleanup attempt.
+        if (closed.get()) {
+          closeAndRemove(key, holder);
         }
+        throw t;
       }
       if (value == null) {
-        if (closed.get() || Thread.currentThread().isInterrupted() || !holder.isRetired()) {
+        if (closed.get()) {
+          // A pending acquisition can release the last reservation after shutdown's cleanup attempt.
+          closeAndRemove(key, holder);
+          return null;
+        }
+        if (Thread.currentThread().isInterrupted() || !holder.isRetired()) {
           return null;
         }
         closeAndRemove(key, holder);
