@@ -37,7 +37,7 @@ public class AppendableByteArrayInputStream extends InputStream
 
   private volatile boolean done = false;
   private volatile Throwable throwable;
-  private volatile int available = 0;
+  private volatile long available = 0;
 
   private byte[] curr = new byte[]{};
   private int currIndex = 0;
@@ -49,6 +49,9 @@ public class AppendableByteArrayInputStream extends InputStream
     }
 
     synchronized (singleByteReaderDoer) {
+      if (done) {
+        return;
+      }
       bytes.addLast(bytesToAdd);
       available += bytesToAdd.length;
       singleByteReaderDoer.notify();
@@ -59,7 +62,7 @@ public class AppendableByteArrayInputStream extends InputStream
   {
     synchronized (singleByteReaderDoer) {
       done = true;
-      singleByteReaderDoer.notify();
+      singleByteReaderDoer.notifyAll();
     }
   }
 
@@ -68,8 +71,16 @@ public class AppendableByteArrayInputStream extends InputStream
     synchronized (singleByteReaderDoer) {
       done = true;
       throwable = t;
-      singleByteReaderDoer.notify();
+      bytes.clear();
+      available = 0;
+      singleByteReaderDoer.notifyAll();
     }
+  }
+
+  @Override
+  public void close()
+  {
+    exceptionCaught(new IOException("Stream closed"));
   }
 
   @Override
@@ -133,11 +144,15 @@ public class AppendableByteArrayInputStream extends InputStream
       if (currIndex >= curr.length) {
         synchronized (singleByteReaderDoer) {
           if (bytes.isEmpty()) {
+            // Surface a stored failure even when failure or close has already discarded all queued bytes.
+            if (throwable != null) {
+              throw new IOException(throwable);
+            }
             if (done) {
               break;
             }
             try {
-              available -= numPulled;
+              releaseUnreadBytes(numPulled);
               numPulled = 0;
               singleByteReaderDoer.wait();
             }
@@ -173,16 +188,24 @@ public class AppendableByteArrayInputStream extends InputStream
     }
 
     synchronized (singleByteReaderDoer) {
-      available -= numPulled;
+      releaseUnreadBytes(numPulled);
     }
 
     return numScanned;
   }
 
+  private void releaseUnreadBytes(final long numPulled)
+  {
+    // exceptionCaught zeroes the count, bytes pulled concurrently included.
+    if (throwable == null) {
+      available -= numPulled;
+    }
+  }
+
   @Override
   public int available()
   {
-    return available;
+    return (int) Math.min(available, Integer.MAX_VALUE);
   }
 
   private interface Doer
