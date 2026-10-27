@@ -20,69 +20,85 @@
 package org.apache.druid.java.util.http.client.pool;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Stopwatch;
 import com.google.common.base.Throwables;
+import com.google.common.base.Ticker;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import org.apache.druid.java.util.common.StringUtils;
-import org.apache.druid.java.util.common.io.Closer;
 import org.apache.druid.java.util.common.logger.Logger;
 
 import javax.annotation.Nullable;
 import java.io.Closeable;
-import java.io.IOException;
 import java.util.ArrayDeque;
-import java.util.Iterator;
+import java.util.ArrayList;
+import java.util.Deque;
 import java.util.Map;
-import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.LongSupplier;
 
 /**
- * A resource pool based on {@link LoadingCache}. When a resource is first requested for a new key,
- * If the flag: eagerInitialization is true: use {@link EagerCreationResourceHolder}
- *    {@link ResourcePoolConfig#getMaxPerKey()} resources are initialized and cached in the {@link #pool}.
- * Else:
- *    Initialize a single resource and further lazily using {@link LazyCreationResourceHolder}
- * The individual resource in {@link ResourceHolderPerKey} is valid while (current time - last access time)
- * <= {@link ResourcePoolConfig#getUnusedConnectionTimeoutMillis()}.
- *
- * A resource is closed and reinitialized if {@link ResourceFactory#isGood} returns false or it's expired based on
- * {@link ResourcePoolConfig#getUnusedConnectionTimeoutMillis()}.
- *
- * {@link ResourcePoolConfig#getMaxPerKey() is a hard limit for the max number of resources per cache entry. The total
- * number of resources in {@link ResourceHolderPerKey} cannot be larger than the limit in any case.
+ * Lends at most {@link ResourcePoolConfig#getMaxPerKey()} resources per destination.
+ * Idle resources are replaced on access after {@link ResourcePoolConfig#getUnusedConnectionTimeoutMillis()}.
+ * Abandoned destinations are retired during later takes, without evicting borrowed or pending resources.
  */
 public class ResourcePool<K, V> implements Closeable
 {
   private static final Logger log = new Logger(ResourcePool.class);
-  private final LoadingCache<K, ResourceHolderPerKey<K, V>> pool;
+  private final LoadingCache<K, PooledResources<V>> pool;
   private final AtomicBoolean closed = new AtomicBoolean(false);
+  private final ReentrantReadWriteLock cacheLifecycle = new ReentrantReadWriteLock();
+  private final AtomicBoolean sweeping = new AtomicBoolean(false);
+  private final LongSupplier clock;
+  private final long abandonmentTimeoutMillis;
+  private final long sweepIntervalMillis;
+  private volatile long nextSweepMillis;
 
   public ResourcePool(final ResourceFactory<K, V> factory, final ResourcePoolConfig config,
                       final boolean eagerInitialization)
   {
+    this(factory, config, eagerInitialization, Ticker.systemTicker());
+  }
+
+  ResourcePool(
+      final ResourceFactory<K, V> factory,
+      final ResourcePoolConfig config,
+      final boolean eagerInitialization,
+      final Ticker ticker
+  )
+  {
+    final Stopwatch stopwatch = Stopwatch.createStarted(ticker);
+    this.clock = () -> stopwatch.elapsed(TimeUnit.MILLISECONDS);
+    this.abandonmentTimeoutMillis = config.getAbandonedKeyTimeoutMillis();
+    this.sweepIntervalMillis = config.getMaintenanceIntervalMillis();
+    this.nextSweepMillis = sweepIntervalMillis;
     this.pool = CacheBuilder.newBuilder().build(
         new CacheLoader<>()
         {
           @Override
-          public ResourceHolderPerKey<K, V> load(K input)
+          public PooledResources<V> load(final K input)
           {
             if (eagerInitialization) {
               return new EagerCreationResourceHolder<>(
                   config.getMaxPerKey(),
                   config.getUnusedConnectionTimeoutMillis(),
                   input,
-                  factory
-              );
-            } else {
-              return new LazyCreationResourceHolder<>(
-                  config.getMaxPerKey(),
-                  config.getUnusedConnectionTimeoutMillis(),
-                  input,
-                  factory
+                  factory,
+                  clock
               );
             }
+            return new LazyCreationResourceHolder<>(
+                config.getMaxPerKey(),
+                config.getUnusedConnectionTimeoutMillis(),
+                input,
+                factory,
+                clock
+            );
           }
         }
     );
@@ -94,96 +110,280 @@ public class ResourcePool<K, V> implements Closeable
   @Nullable
   public ResourceContainer<V> take(final K key)
   {
-    if (closed.get()) {
-      log.error(StringUtils.format("take(%s) called even though I'm closed.", key));
-      return null;
-    }
+    reapAbandonedKeys();
+    while (!closed.get()) {
+      final PooledResources<V> holder;
+      cacheLifecycle.readLock().lock();
+      try {
+        if (closed.get()) {
+          return null;
+        }
+        holder = pool.get(key);
+      }
+      catch (ExecutionException e) {
+        throw new RuntimeException(e);
+      }
+      finally {
+        cacheLifecycle.readLock().unlock();
+      }
 
-    final ResourceHolderPerKey<K, V> holder;
+      final V value = holder.get();
+      if (value == null) {
+        if (closed.get() || Thread.currentThread().isInterrupted() || !holder.isRetired()) {
+          return null;
+        }
+        closeAndRemove(key, holder);
+        Preconditions.checkState(holder.isFullyClosed(), "Cleanup is pending for retired pool at key[%s]", key);
+        continue;
+      }
+      if (closed.get()) {
+        holder.giveBack(value);
+        closeAndRemove(key, holder);
+        return null;
+      }
+
+      return new ResourceContainer<>()
+      {
+        private final AtomicBoolean returned = new AtomicBoolean(false);
+
+        @Override
+        public V get()
+        {
+          Preconditions.checkState(!returned.get(), "Resource for key[%s] has been returned, cannot get().", key);
+          return value;
+        }
+
+        @Override
+        public void returnResource()
+        {
+          if (returned.getAndSet(true)) {
+            log.warn("Resource at key[%s] was returned multiple times?", key);
+          } else {
+            holder.giveBack(value);
+            if (closed.get()) {
+              closeAndRemove(key, holder);
+            }
+          }
+        }
+
+        @Override
+        protected void finalize() throws Throwable
+        {
+          if (!returned.get()) {
+            log.warn(
+                StringUtils.format(
+                    "Resource[%s] at key[%s] was not returned before Container was finalized, potential resource leak.",
+                    value,
+                    key
+                )
+            );
+            returnResource();
+          }
+          super.finalize();
+        }
+      };
+    }
+    return null;
+  }
+
+  private void reapAbandonedKeys()
+  {
+    final long now = clock.getAsLong();
+    if (now < nextSweepMillis || !sweeping.compareAndSet(false, true)) {
+      return;
+    }
     try {
-      holder = pool.get(key);
-    }
-    catch (ExecutionException e) {
-      throw new RuntimeException(e);
-    }
-    final V value = holder.get();
-
-    return new ResourceContainer<>()
-    {
-      private final AtomicBoolean returned = new AtomicBoolean(false);
-
-      @Override
-      public V get()
-      {
-        Preconditions.checkState(!returned.get(), "Resource for key[%s] has been returned, cannot get().", key);
-        return value;
+      if (now < nextSweepMillis) {
+        return;
       }
-
-      @Override
-      public void returnResource()
-      {
-        if (returned.getAndSet(true)) {
-          log.warn("Resource at key[%s] was returned multiple times?", key);
-        } else {
-          holder.giveBack(value);
+      nextSweepMillis = now > Long.MAX_VALUE - sweepIntervalMillis ? Long.MAX_VALUE : now + sweepIntervalMillis;
+      for (final Map.Entry<K, PooledResources<V>> entry : pool.asMap().entrySet()) {
+        final PooledResources<V> holder = entry.getValue();
+        if (holder.tryRetireIfIdle(now, abandonmentTimeoutMillis)) {
+          closeAndRemove(entry.getKey(), holder);
         }
       }
+    }
+    finally {
+      sweeping.set(false);
+    }
+  }
 
-      @Override
-      protected void finalize() throws Throwable
-      {
-        if (!returned.get()) {
-          log.warn(
-              StringUtils.format(
-                  "Resource[%s] at key[%s] was not returned before Container was finalized, potential resource leak.",
-                  value,
-                  key
-              )
-          );
-          returnResource();
-        }
-        super.finalize();
-      }
-    };
+  private void closeAndRemove(final K key, final PooledResources<V> holder)
+  {
+    holder.close();
+    if (holder.isFullyClosed()) {
+      pool.asMap().remove(key, holder);
+    }
   }
 
   @Override
   public void close()
   {
-    closed.set(true);
-    final ConcurrentMap<K, ResourceHolderPerKey<K, V>> mapView = pool.asMap();
-    Closer closer = Closer.create();
-    for (Iterator<Map.Entry<K, ResourceHolderPerKey<K, V>>> iterator =
-         mapView.entrySet().iterator(); iterator.hasNext(); ) {
-      Map.Entry<K, ResourceHolderPerKey<K, V>> e = iterator.next();
-      iterator.remove();
-      closer.register(e.getValue());
-    }
+    final ArrayList<Map.Entry<K, PooledResources<V>>> entries;
+    cacheLifecycle.writeLock().lock();
     try {
-      closer.close();
+      closed.set(true);
+      entries = new ArrayList<>(pool.asMap().entrySet());
     }
-    catch (IOException e) {
-      throw new RuntimeException(e);
+    finally {
+      cacheLifecycle.writeLock().unlock();
     }
+    for (final Map.Entry<K, PooledResources<V>> entry : entries) {
+      closeAndRemove(entry.getKey(), entry.getValue());
+    }
+  }
+
+  private abstract static class PooledResources<V> implements Closeable
+  {
+    private final Object lifecycle = new Object();
+    private final Object cleanup = new Object();
+    private final LongSupplier clock;
+    private final Object destination;
+    private final Deque<Runnable> failedCloses = new ConcurrentLinkedDeque<>();
+    private long lastActivityMillis;
+    private int reservations;
+    private boolean retired;
+
+    PooledResources(final Object destination, final LongSupplier clock)
+    {
+      this.destination = destination;
+      this.clock = clock;
+      lastActivityMillis = clock.getAsLong();
+    }
+
+    // A reservation covers waiting, creation, borrowing, and return, even across different threads.
+    @Nullable
+    final V get()
+    {
+      synchronized (lifecycle) {
+        if (retired) {
+          return null;
+        }
+        reservations++;
+      }
+      boolean lent = false;
+      try {
+        final V value = borrow();
+        lent = value != null;
+        return value;
+      }
+      finally {
+        if (!lent) {
+          releaseReservation();
+        }
+      }
+    }
+
+    final void giveBack(final V value)
+    {
+      try {
+        returnToPool(value);
+      }
+      finally {
+        releaseReservation();
+      }
+    }
+
+    private void releaseReservation()
+    {
+      synchronized (lifecycle) {
+        reservations--;
+        lastActivityMillis = clock.getAsLong();
+      }
+    }
+
+    final boolean tryRetireIfIdle(final long now, final long timeoutMillis)
+    {
+      synchronized (lifecycle) {
+        if (!retired && (reservations != 0 || now - lastActivityMillis < timeoutMillis)) {
+          return false;
+        }
+        retired = true;
+        return true;
+      }
+    }
+
+    final boolean isRetired()
+    {
+      synchronized (lifecycle) {
+        return retired;
+      }
+    }
+
+    final boolean isFullyClosed()
+    {
+      synchronized (cleanup) {
+        synchronized (lifecycle) {
+          return retired && reservations == 0 && failedCloses.isEmpty() && getIdleCount() == 0;
+        }
+      }
+    }
+
+    final void closeResource(final Runnable action)
+    {
+      boolean succeeded = false;
+      try {
+        action.run();
+        succeeded = true;
+      }
+      catch (RuntimeException e) {
+        log.warn(e, "Failed to close a pooled resource at key[%s]; retaining it for retry", destination);
+      }
+      finally {
+        if (!succeeded) {
+          failedCloses.addLast(action);
+        }
+      }
+    }
+
+    @Override
+    public final void close()
+    {
+      synchronized (lifecycle) {
+        retired = true;
+      }
+      synchronized (cleanup) {
+        // Retry each failed resource once per pass, without preventing other resources from closing.
+        final int pending = failedCloses.size();
+        for (int i = 0; i < pending; i++) {
+          final Runnable action = failedCloses.pollFirst();
+          if (action != null) {
+            closeResource(action);
+          }
+        }
+        closeResources();
+      }
+    }
+
+    @Nullable
+    abstract V borrow();
+
+    abstract void returnToPool(V object);
+
+    abstract int getIdleCount();
+
+    abstract void closeResources();
   }
 
   private static class EagerCreationResourceHolder<K, V> extends LazyCreationResourceHolder<K, V>
   {
     private EagerCreationResourceHolder(
-        int maxSize,
-        long unusedResourceTimeoutMillis,
-        K key,
-        ResourceFactory<K, V> factory
+        final int maxSize,
+        final long unusedResourceTimeoutMillis,
+        final K key,
+        final ResourceFactory<K, V> factory,
+        final LongSupplier clock
     )
     {
-      super(maxSize, unusedResourceTimeoutMillis, key, factory);
+      super(maxSize, unusedResourceTimeoutMillis, key, factory, clock);
       // Eagerly Instantiate
       for (int i = 0; i < maxSize; i++) {
         resourceHolderList.add(
             new ResourceHolder<>(
                 System.currentTimeMillis(),
                 Preconditions.checkNotNull(
-                    factory.generate(key),
+                    this.factory.generate(key),
                     "factory.generate(key)"
                 )
             )
@@ -195,21 +395,22 @@ public class ResourcePool<K, V> implements Closeable
   private static class LazyCreationResourceHolder<K, V> extends ResourceHolderPerKey<K, V>
   {
     private LazyCreationResourceHolder(
-        int maxSize,
-        long unusedResourceTimeoutMillis,
-        K key,
-        ResourceFactory<K, V> factory
+        final int maxSize,
+        final long unusedResourceTimeoutMillis,
+        final K key,
+        final ResourceFactory<K, V> factory,
+        final LongSupplier clock
     )
     {
-      super(maxSize, unusedResourceTimeoutMillis, key, factory);
+      super(maxSize, unusedResourceTimeoutMillis, key, factory, clock);
     }
   }
 
-  private static class ResourceHolderPerKey<K, V> implements Closeable
+  private static class ResourceHolderPerKey<K, V> extends PooledResources<V>
   {
     protected final int maxSize;
+    protected final ResourceFactory<K, V> factory;
     private final K key;
-    private final ResourceFactory<K, V> factory;
     private final long unusedResourceTimeoutMillis;
     // Hold previously created / returned resources
     protected final ArrayDeque<ResourceHolder<V>> resourceHolderList;
@@ -218,12 +419,14 @@ public class ResourcePool<K, V> implements Closeable
     private boolean closed = false;
 
     protected ResourceHolderPerKey(
-        int maxSize,
-        long unusedResourceTimeoutMillis,
-        K key,
-        ResourceFactory<K, V> factory
+        final int maxSize,
+        final long unusedResourceTimeoutMillis,
+        final K key,
+        final ResourceFactory<K, V> factory,
+        final LongSupplier clock
     )
     {
+      super(key, clock);
       this.maxSize = maxSize;
       this.key = key;
       this.factory = factory;
@@ -237,7 +440,8 @@ public class ResourcePool<K, V> implements Closeable
      * Try to return a previously created resource if it isGood(). Else, generate a new resource
      */
     @Nullable
-    V get()
+    @Override
+    V borrow()
     {
       final V poolVal;
       // resourceHolderList can't have nulls, so we'll use a null to signal that we need to create a new resource.
@@ -261,7 +465,7 @@ public class ResourcePool<K, V> implements Closeable
           if (resourceHolderList.isEmpty()) {
             poolVal = factory.generate(key);
           } else {
-            ResourceHolder<V> holder = resourceHolderList.removeFirst();
+            final ResourceHolder<V> holder = resourceHolderList.removeFirst();
             poolVal = holder.getResource();
             if (System.currentTimeMillis() - holder.getLastAccessedTime() > unusedResourceTimeoutMillis) {
               expired = true;
@@ -297,14 +501,17 @@ public class ResourcePool<K, V> implements Closeable
       return retVal;
     }
 
-    void giveBack(V object)
+    @Override
+    void returnToPool(final V object)
     {
       Preconditions.checkNotNull(object, "object");
 
       synchronized (this) {
         if (closed) {
           log.info(StringUtils.format("giveBack called after being closed. key[%s]", key));
-          factory.close(object);
+          closeResource(() -> factory.close(object));
+          numLentResources--;
+          this.notifyAll();
           return;
         }
 
@@ -338,19 +545,32 @@ public class ResourcePool<K, V> implements Closeable
       }
     }
 
-    private boolean holderListContains(V object)
+    @Override
+    synchronized int getIdleCount()
+    {
+      return resourceHolderList.size();
+    }
+
+    private boolean holderListContains(final V object)
     {
       return resourceHolderList.stream().anyMatch(a -> a.getResource().equals(object));
     }
 
     @Override
-    public void close()
+    void closeResources()
     {
       synchronized (this) {
         closed = true;
-        resourceHolderList.forEach(v -> factory.close(v.getResource()));
-        resourceHolderList.clear();
-        this.notifyAll();
+        try {
+          for (ResourceHolder<V> holder = resourceHolderList.pollFirst(); holder != null;
+               holder = resourceHolderList.pollFirst()) {
+            final V resource = holder.getResource();
+            closeResource(() -> factory.close(resource));
+          }
+        }
+        finally {
+          this.notifyAll();
+        }
       }
     }
   }

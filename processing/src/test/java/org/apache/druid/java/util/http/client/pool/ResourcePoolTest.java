@@ -28,6 +28,7 @@ import org.junit.Test;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  */
@@ -403,8 +404,13 @@ public class ResourcePoolTest
     EasyMock.verify(resourceFactory);
     EasyMock.reset(resourceFactory);
 
+    resourceFactory.close("billy1");
+    EasyMock.expectLastCall().once();
+    EasyMock.replay(resourceFactory);
     latch1.countDown();
     latch3.countDown();
+    billy1Thread.join();
+    EasyMock.verify(resourceFactory);
 
     Assert.assertEquals("billy1", billy1Thread.getValue());
     Assert.assertEquals("billy0", billy0Thread.getValue());
@@ -420,7 +426,7 @@ public class ResourcePoolTest
 
     pool = new ResourcePool<>(
         resourceFactory,
-        new ResourcePoolConfig(2, TimeUnit.MILLISECONDS.toMillis(10)),
+        new ResourcePoolConfig(2, TimeUnit.MILLISECONDS.toMillis(100)),
         true
     );
 
@@ -436,8 +442,8 @@ public class ResourcePoolTest
 
     billyString.returnResource();
 
-    //make sure resources have been timed out.
-    Thread.sleep(100);
+    // Expire the idle connection while keeping the destination inside its abandonment interval.
+    Thread.sleep(300);
 
     EasyMock.expect(resourceFactory.generate("billy")).andReturn("billy1").times(1);
     resourceFactory.close("billy1");
@@ -449,6 +455,50 @@ public class ResourcePoolTest
 
     EasyMock.verify(resourceFactory);
     EasyMock.reset(resourceFactory);
+  }
+
+  @Test
+  public void testAbandonedEndpointIsClosedOnOtherTraffic() throws Exception
+  {
+    final AtomicInteger oldConnectionsClosed = new AtomicInteger();
+    final ResourceFactory<String, String> factory = new ResourceFactory<>()
+    {
+      @Override
+      public String generate(final String key)
+      {
+        return key;
+      }
+
+      @Override
+      public boolean isGood(final String resource)
+      {
+        return true;
+      }
+
+      @Override
+      public void close(final String resource)
+      {
+        if ("old".equals(resource)) {
+          oldConnectionsClosed.incrementAndGet();
+        }
+      }
+    };
+
+    try (final ResourcePool<String, String> testPool = new ResourcePool<>(
+        factory,
+        new ResourcePoolConfig(2, 10),
+        true
+    )) {
+      testPool.take("old").returnResource();
+      // The public API is shared with the old implementation, so this regression can run unchanged on both.
+      Thread.sleep(200);
+      testPool.take("new").returnResource();
+      Assert.assertEquals(
+          "Abandoned connections must close on traffic to another destination",
+          2,
+          oldConnectionsClosed.get()
+      );
+    }
   }
 
   private static class StringIncrementingAnswer implements IAnswer<String>
@@ -486,8 +536,8 @@ public class ResourcePoolTest
     @Override
     public void run()
     {
-      ResourceContainer<String> resourceContainer = pool.take(resourceName);
-      value = resourceContainer.get();
+      final ResourceContainer<String> resourceContainer = pool.take(resourceName);
+      value = resourceContainer == null ? null : resourceContainer.get();
       gotValueLatch.countDown();
       try {
         latch1.await();
@@ -495,7 +545,9 @@ public class ResourcePoolTest
       catch (InterruptedException e) {
 
       }
-      resourceContainer.returnResource();
+      if (resourceContainer != null) {
+        resourceContainer.returnResource();
+      }
     }
 
     public String getValue()
