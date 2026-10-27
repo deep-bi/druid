@@ -35,6 +35,7 @@ import org.junit.jupiter.params.provider.EnumSource;
 import javax.annotation.Nullable;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -870,12 +871,45 @@ public class ResourcePoolTest
       Assertions.assertTrue(pool.drainStats().isEmpty(), "the final acquisition must remove the closed destination");
     }
     finally {
-      pool.close();
       if (!returned) {
+        pool.close();
         loan.returnResource();
       }
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(ResourcePool.Implementation.class)
+  public void testLastWaitingAcquisitionRetriesFailedClosesAfterShutdown(
+      final ResourcePool.Implementation implementation
+  ) throws Exception
+  {
+    final ResourcePool<String, String> pool = createPool(implementation, 1, NEVER_EXPIRES, false);
+    final ResourceContainer<String> loan = pool.take("old");
+    final Object lifecycle = lifecycleLock(pool, "old");
+    final BackgroundTake waiter = BackgroundTake.start(pool, "old");
+    boolean returned = false;
+    try {
+      awaitWaiting(waiter.thread);
+      factory.failClose("old#0", new ISE("injected close failure"));
+      // Hold the waiter's final reservation release until the loan's close has failed and the fault is gone.
+      synchronized (lifecycle) {
+        pool.close();
+        loan.returnResource();
+        returned = true;
+        Assertions.assertTrue(pool.drainStats().containsKey("old"), "the failed close stays reachable for retry");
+        factory.closeFaults.clear();
+      }
+      Assertions.assertNull(waiter.awaitResource());
       waiter.release();
-      pool.close();
+      Assertions.assertEquals(List.of("old#0", "old#0", "old#0"), factory.closed());
+      Assertions.assertTrue(pool.drainStats().isEmpty(), "the final acquisition must retry the failed close");
+    }
+    finally {
+      if (!returned) {
+        pool.close();
+        loan.returnResource();
+      }
     }
   }
 
@@ -914,7 +948,6 @@ public class ResourcePoolTest
     finally {
       proceed.countDown();
       exec.shutdownNow();
-      Assertions.assertTrue(exec.awaitTermination(5, TimeUnit.SECONDS));
       pool.close();
     }
   }
@@ -936,10 +969,19 @@ public class ResourcePoolTest
   private static void awaitWaiting(final Thread thread) throws InterruptedException
   {
     final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
-    while (thread.getState() != Thread.State.WAITING && System.nanoTime() < deadline) {
+    while (!isWaitingToBorrow(thread) && System.nanoTime() < deadline) {
       Thread.sleep(1);
     }
-    Assertions.assertEquals(Thread.State.WAITING, thread.getState(), "the acquisition must be waiting for a resource");
+    Assertions.assertTrue(isWaitingToBorrow(thread), "the acquisition must be waiting for a resource");
+  }
+
+  /**
+   * Whether the thread is parked inside the pool's borrow, and so already holds a reservation.
+   */
+  private static boolean isWaitingToBorrow(final Thread thread)
+  {
+    return thread.getState() == Thread.State.WAITING
+           && Arrays.stream(thread.getStackTrace()).anyMatch(frame -> "borrow".equals(frame.getMethodName()));
   }
 
   private ResourcePool<String, String> timedPool(
