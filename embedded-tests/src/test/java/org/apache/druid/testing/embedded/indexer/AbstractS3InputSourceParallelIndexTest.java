@@ -22,8 +22,8 @@ package org.apache.druid.testing.embedded.indexer;
 import org.apache.druid.data.input.s3.S3InputSourceDruidModule;
 import org.apache.druid.java.util.common.logger.Logger;
 import org.apache.druid.testing.embedded.EmbeddedDruidCluster;
-import org.apache.druid.testing.embedded.minio.MinIOStorageResource;
-import org.apache.druid.testing.embedded.minio.S3TestUtil;
+import org.apache.druid.testing.embedded.s3.S3StorageResource;
+import org.apache.druid.testing.embedded.s3.S3TestUtil;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -41,14 +41,14 @@ import java.util.List;
 public abstract class AbstractS3InputSourceParallelIndexTest extends AbstractCloudInputSourceParallelIndexTest
 {
   private static final Logger LOG = new Logger(AbstractS3InputSourceParallelIndexTest.class);
-  private final MinIOStorageResource minIOStorageResource = new MinIOStorageResource();
+  private final S3StorageResource s3StorageResource = new S3StorageResource();
   private S3TestUtil s3;
 
   @Override
   protected void addResources(EmbeddedDruidCluster cluster)
   {
     cluster.addExtension(S3InputSourceDruidModule.class)
-           .addResource(minIOStorageResource);
+           .addResource(s3StorageResource);
   }
 
   @BeforeAll
@@ -61,7 +61,7 @@ public abstract class AbstractS3InputSourceParallelIndexTest extends AbstractClo
     }
     try {
       s3 = new S3TestUtil(
-          minIOStorageResource.getS3Client(),
+          s3StorageResource.getS3Client(),
           getCloudBucket("s3"),
           getCloudPath("s3")
       );
