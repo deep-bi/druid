@@ -41,12 +41,14 @@ import org.apache.druid.server.security.TLSCertificateChecker;
 import org.apache.druid.server.security.TLSUtils;
 import org.apache.druid.testing.guice.DruidTestModuleFactory;
 import org.apache.druid.testing.tools.IntegrationTestingConfig;
+import org.apache.druid.testing.utils.DruidClusterAdminClient;
 import org.apache.druid.testing.utils.ITTLSCertificateChecker;
 import org.apache.druid.tests.TestNGGroup;
 import org.jboss.netty.handler.codec.http.HttpMethod;
 import org.jboss.netty.handler.codec.http.HttpResponseStatus;
 import org.joda.time.Duration;
 import org.testng.Assert;
+import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Guice;
 import org.testng.annotations.Test;
 
@@ -88,6 +90,16 @@ public class ITTLSTest
   @Inject
   TLSCertificateChecker certificateChecker;
 
+  @Inject
+  DruidClusterAdminClient druidClusterAdminClient;
+
+  @BeforeClass
+  public void waitUntilHistoricalReady()
+  {
+    // Certificate checks must reach the TLS handler, rather than a server that is still starting.
+    druidClusterAdminClient.waitUntilHistoricalReady();
+    druidClusterAdminClient.waitUntilHistoricalTLSReady();
+  }
 
   @Test
   public void testPlaintextAccess()

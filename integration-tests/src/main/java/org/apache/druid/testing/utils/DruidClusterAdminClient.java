@@ -146,6 +146,11 @@ public class DruidClusterAdminClient
     waitUntilInstanceReady(config.getHistoricalUrl());
   }
 
+  public void waitUntilHistoricalTLSReady()
+  {
+    waitUntilInstanceReady(config.getHistoricalTLSUrl());
+  }
+
   public void waitUntilIndexerReady()
   {
     waitUntilInstanceReady(config.getOverlordUrl());
