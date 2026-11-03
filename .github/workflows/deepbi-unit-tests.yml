@@ -1,0 +1,172 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: "Deepbi Unit Tests Workflow"
+
+on:
+  workflow_dispatch:
+    inputs:
+      jdk:
+        description: "JDK to test with; 'recommended' picks the JDK for this Druid release line, others must be supported by it"
+        required: false
+        type: choice
+        default: recommended
+        options:
+          - recommended
+          - "11"
+          - "17"
+  pull_request:
+    branches:
+      - 'deep/**'
+    paths-ignore:
+      - '**/*.md'
+      - 'dev/**'
+      - 'docs/**'
+      - 'examples/**/jupyter-notebooks/**'
+      - 'web-console/**'
+      - 'website/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  unit-tests:
+    name: "unit tests (${{ matrix.name }})"
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        # Test classes are split by first letter, as in upstream ci.yml. QTest is long, so it runs alone.
+        include:
+          - name: "C"
+            tests: "!QTest,C*"
+          - name: "H-U-V"
+            tests: "!QTest,H*,U*,V*"
+          - name: "N-Q-S"
+            tests: "!QTest,N*,Q*,S*"
+          - name: "B-O-R"
+            tests: "!QTest,B*,O*,R*"
+          - name: "G-J-K"
+            tests: "!QTest,G*,J*,K*"
+          - name: "F-L-M"
+            tests: "!QTest,F*,L*,M*"
+          - name: "A-D-I-X-Y-Z"
+            tests: "!QTest,A*,D*,I*,X*,Y*,Z*"
+          - name: "E-P-T-W"
+            tests: "!QTest,E*,P*,T*,W*"
+          - name: "QTest"
+            tests: "QTest"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Resolve JDK and Maven projects
+        id: resolve
+        env:
+          REQUESTED_JDK: ${{ inputs.jdk || 'recommended' }}
+        run: |
+          set -euo pipefail
+          version=$(python3 -c "import xml.etree.ElementTree as ET; print(ET.parse('pom.xml').getroot().find('{http://maven.apache.org/POM/4.0.0}version').text)")
+          major="${version%%.*}"
+
+          # Supported JDKs come from docs/operations/java.md of each release line. The recommended
+          # JDK is the one deepbi-release.yml builds that line with.
+          case "$major" in
+            31)    supported="8 11 17"; recommended=17 ;;
+            34)    supported="11 17";   recommended=17 ;;
+            36|37) supported="17 21";   recommended=17 ;;
+            38)    supported="21 25";   recommended=21 ;;
+            *)
+              echo "::error::No JDK table for Druid $version; add it to this workflow"
+              exit 1
+              ;;
+          esac
+
+          if [[ "$REQUESTED_JDK" == "recommended" ]]; then
+            jdk="$recommended"
+          elif [[ " $supported " == *" $REQUESTED_JDK "* ]]; then
+            jdk="$REQUESTED_JDK"
+          else
+            echo "::error::Druid $version supports JDK $supported, not $REQUESTED_JDK"
+            exit 1
+          fi
+
+          # Older release lines still carry integration test modules; keep them out of the unit test run.
+          excludes=()
+          for module in integration-tests integration-tests-ex/tools integration-tests-ex/image integration-tests-ex/cases; do
+            if [[ -f "$module/pom.xml" ]]; then
+              excludes+=("!$module")
+            fi
+          done
+
+          echo "Druid $version, JDK $jdk, excluded projects: ${excludes[*]:-none}"
+          echo "jdk=$jdk" >> "$GITHUB_OUTPUT"
+          echo "projects=$(IFS=,; echo "${excludes[*]:-}")" >> "$GITHUB_OUTPUT"
+
+      - name: Set up JDK ${{ steps.resolve.outputs.jdk }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ steps.resolve.outputs.jdk }}
+          cache: maven
+
+      - name: Run unit tests
+        env:
+          TESTS: ${{ matrix.tests }}
+          PROJECTS: ${{ steps.resolve.outputs.projects }}
+          MAVEN_OPTS: -Xmx3g
+        run: |
+          set -euo pipefail
+          args=(
+            -B test
+            -P skip-static-checks
+            -Dweb.console.skip=true
+            -Djacoco.skip=true
+            -Dsurefire.failIfNoSpecifiedTests=false
+            "-Dtest=$TESTS"
+            -fae
+          )
+          if [[ -n "$PROJECTS" ]]; then
+            args+=(-pl "$PROJECTS")
+          fi
+          mvn "${args[@]}"
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-reports-jdk${{ steps.resolve.outputs.jdk }}-${{ matrix.name }}
+          path: |
+            **/target/surefire-reports/**
+            **/hs_err_pid*
+            **/*.hprof
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # Single status to require in branch protection, since matrix job names vary.
+  unit-tests-result:
+    name: "unit tests result"
+    if: always()
+    needs: unit-tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check unit test shards
+        run: test "${{ needs.unit-tests.result }}" == "success"
