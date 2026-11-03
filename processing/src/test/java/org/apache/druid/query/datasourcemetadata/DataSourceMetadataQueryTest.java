@@ -43,6 +43,7 @@ import org.apache.druid.query.context.ResponseContext;
 import org.apache.druid.segment.IncrementalIndexSegment;
 import org.apache.druid.segment.incremental.IncrementalIndex;
 import org.apache.druid.segment.incremental.OnheapIncrementalIndex;
+import org.apache.druid.testing.InitializedNullHandlingTest;
 import org.apache.druid.timeline.LogicalSegment;
 import org.apache.druid.timeline.SegmentId;
 import org.joda.time.DateTime;
@@ -55,7 +56,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
-public class DataSourceMetadataQueryTest
+public class DataSourceMetadataQueryTest extends InitializedNullHandlingTest
 {
   private static final ObjectMapper JSON_MAPPER = new DefaultObjectMapper();
 

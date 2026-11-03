@@ -26,12 +26,13 @@ import org.apache.druid.query.Query;
 import org.apache.druid.query.QueryRunnerTestHelper;
 import org.apache.druid.query.dimension.DefaultDimensionSpec;
 import org.apache.druid.query.dimension.LegacyDimensionSpec;
+import org.apache.druid.testing.InitializedNullHandlingTest;
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.io.IOException;
 
-public class SearchQueryTest
+public class SearchQueryTest extends InitializedNullHandlingTest
 {
   private static final ObjectMapper JSON_MAPPER = new DefaultObjectMapper();
 

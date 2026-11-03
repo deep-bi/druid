@@ -22,6 +22,7 @@ package org.apache.druid.query;
 import org.apache.druid.java.util.common.DateTimes;
 import org.apache.druid.java.util.common.granularity.Granularities;
 import org.apache.druid.java.util.common.granularity.Granularity;
+import org.apache.druid.testing.InitializedNullHandlingTest;
 import org.joda.time.DateTime;
 import org.junit.Assert;
 import org.junit.Test;
@@ -33,7 +34,7 @@ import java.util.Arrays;
 /**
  */
 @RunWith(Parameterized.class)
-public class ResultGranularTimestampComparatorTest
+public class ResultGranularTimestampComparatorTest extends InitializedNullHandlingTest
 {
   @Parameterized.Parameters(name = "descending={0}")
   public static Iterable<Object[]> constructorFeeder()

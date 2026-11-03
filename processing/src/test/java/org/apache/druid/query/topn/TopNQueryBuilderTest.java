@@ -23,11 +23,12 @@ import com.google.common.collect.ImmutableMap;
 import org.apache.druid.query.BaseQuery;
 import org.apache.druid.query.QueryRunnerTestHelper;
 import org.apache.druid.query.aggregation.DoubleMaxAggregatorFactory;
+import org.apache.druid.testing.InitializedNullHandlingTest;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-public class TopNQueryBuilderTest
+public class TopNQueryBuilderTest extends InitializedNullHandlingTest
 {
   private TopNQueryBuilder builder;
 
