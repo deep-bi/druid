@@ -52,7 +52,6 @@ import org.apache.druid.server.lookup.cache.LookupLoadingSpec;
 import org.apache.druid.server.security.ResourceAction;
 import org.apache.druid.timeline.DataSegment;
 import org.apache.druid.timeline.SegmentId;
-import org.apache.druid.utils.CollectionUtils;
 import org.joda.time.DateTime;
 import org.joda.time.Interval;
 
@@ -70,7 +69,6 @@ import java.util.TreeMap;
 import java.util.stream.Collectors;
 
 /**
- * <p/>
  * The client representation of this task is {@link ClientKillUnusedSegmentsTaskQuery}.
  * JSON serialization fields of this class must correspond to those of {@link
  * ClientKillUnusedSegmentsTaskQuery}, except for {@link #id} and {@link #context} fields.
@@ -87,6 +85,10 @@ import java.util.stream.Collectors;
  * <li> Filter the set of unreferenced segments using load specs from the set of used segments. </li>
  * <li> Kill the filtered set of segments from deep storage. </li>
  * </ol>
+ * Note: When {@link Tasks#USE_CONCURRENT_LOCKS} is true, keep a large buffer
+ * period before killing segments after they have been marked as unused.
+ * Otherwise, there may be a potential data loss if a concurrent APPEND job
+ * upgrades one of the segments that are being killed.
  */
 public class KillUnusedSegmentsTask extends AbstractFixedIntervalTask
 {
@@ -239,6 +241,10 @@ public class KillUnusedSegmentsTask extends AbstractFixedIntervalTask
       unusedSegments = toolbox.getTaskActionClient().submit(
           new RetrieveUnusedSegmentsAction(getDataSource(), getInterval(), getVersions(), nextBatchSize, maxUsedStatusLastUpdatedTime)
       );
+      if (unusedSegments.isEmpty()) {
+        // No more segments eligible for kill, do not proceed further
+        break;
+      }
 
       // Fetch locks each time as a revokal could have occurred in between batches
       final NavigableMap<DateTime, List<TaskLock>> taskLockMap
@@ -253,51 +259,40 @@ public class KillUnusedSegmentsTask extends AbstractFixedIntervalTask
         );
       }
 
-      // Kill segments. Order is important here:
-      // Retrieve the segment upgrade infos for the batch _before_ the segments are nuked
-      // We then want the nuke action to clean up the metadata records _before_ the segments are removed from storage.
-      // This helps maintain that we will always have a storage segment if the metadata segment is present.
-      // Determine the subset of segments to be killed from deep storage based on loadspecs.
-      // If the segment nuke throws an exception, then the segment cleanup is abandoned.
+      // Kill segments - order of steps 1, 2, 3, 4 must remain the same
 
-      // Determine upgraded segment ids before nuking
-      final Set<String> segmentIds = unusedSegments.stream()
-                                                   .map(DataSegment::getId)
-                                                   .map(SegmentId::toString)
-                                                   .collect(Collectors.toSet());
-      final Map<String, String> upgradedFromSegmentIds = new HashMap<>();
-      try {
-        upgradedFromSegmentIds.putAll(
-            taskActionClient.submit(
-                new RetrieveUpgradedFromSegmentIdsAction(getDataSource(), segmentIds)
-            ).getUpgradedFromSegmentIds()
-        );
-      }
-      catch (Exception e) {
-        LOG.warn(
-            e,
-            "Could not retrieve parent segment ids using task action[retrieveUpgradedFromSegmentIds]."
-            + " Overlord may be on an older version."
-        );
-      }
+      // 1. Determine parent segment ids of killable unused segments
+      final Set<String> unusedSegmentIds = unusedSegments.stream()
+                                                         .map(DataSegment::getId)
+                                                         .map(SegmentId::toString)
+                                                         .collect(Collectors.toSet());
+      final Map<String, String> upgradedFromSegmentIds
+          = fetchParentIdsForSegments(toolbox, unusedSegmentIds);
 
-      // Nuke Segments
-      taskActionClient.submit(new SegmentNukeAction(new HashSet<>(unusedSegments)));
+      // 2. Identify killable segments whose load specs are not shared with any other segment
+      final List<DataSegment> segmentsToKillFromDeepStore = getKillableSegments(
+          unusedSegments,
+          unusedSegmentIds,
+          upgradedFromSegmentIds,
+          usedSegmentLoadSpecs,
+          taskActionClient
+      );
 
-      // Determine segments to be killed
-      final List<DataSegment> segmentsToBeKilled
-          = getKillableSegments(unusedSegments, upgradedFromSegmentIds, usedSegmentLoadSpecs, taskActionClient);
-
+      // 2a. Track segments that cannot be removed from deep store yet
       final Set<DataSegment> segmentsNotKilled = new HashSet<>(unusedSegments);
-      segmentsToBeKilled.forEach(segmentsNotKilled::remove);
+      segmentsToKillFromDeepStore.forEach(segmentsNotKilled::remove);
       LOG.infoSegments(
           segmentsNotKilled,
           "Skipping segment kill from deep storage as their load specs are referenced by other segments."
       );
 
-      toolbox.getDataSegmentKiller().kill(segmentsToBeKilled);
+      // 3. Nuke all eligible unused segments
+      taskActionClient.submit(new SegmentNukeAction(new HashSet<>(unusedSegments)));
+
+      // 4. Delete deep store files only for segments which do not share load specs with other segments
+      toolbox.getDataSegmentKiller().kill(segmentsToKillFromDeepStore);
       numBatchesProcessed++;
-      numSegmentsKilled += segmentsToBeKilled.size();
+      numSegmentsKilled += segmentsToKillFromDeepStore.size();
 
       LOG.info("Processed [%d] batches for kill task[%s].", numBatchesProcessed, getId());
 
@@ -336,6 +331,39 @@ public class KillUnusedSegmentsTask extends AbstractFixedIntervalTask
     return null != limit ? Math.min(limit - numSegmentsKilled, batchSize) : batchSize;
   }
 
+  /**
+   * Fetches the parent IDs (if any) for the given unused segments.
+   *
+   * @param unusedSegmentIds IDs of unused segments whose parent IDs need to be fetched
+   * @return Map from segment ID to the segment ID from which
+   * it was upgraded. If an input segment was not upgraded from any other segment,
+   * it does not have an entry in the map.
+   */
+  private Map<String, String> fetchParentIdsForSegments(
+      TaskToolbox toolbox,
+      Set<String> unusedSegmentIds
+  )
+  {
+    try {
+      return toolbox.getTaskActionClient().submit(
+          new RetrieveUpgradedFromSegmentIdsAction(getDataSource(), unusedSegmentIds)
+      ).getUpgradedFromSegmentIds();
+    }
+    catch (Exception e) {
+      // Do not proceed with killing these segments as we cannot be sure if their
+      // load spec is shared by any other segment or not. If load spec is shared,
+      // segment files cannot be deleted from deep store. If load spec is not
+      // shared, segments cannot be deleted from metadata store as that would
+      // leave deep store files orphaned, and they would never be cleaned up.
+      throw new ISE(
+          e,
+          "Could not retrieve parent segment ids using task action[retrieveUpgradedFromSegmentIds]."
+          + " Stopping kill task to avoid data loss in case the segment files"
+          + " are shared by other segments."
+      );
+    }
+  }
+
   private NavigableMap<DateTime, List<TaskLock>> getNonRevokedTaskLockMap(TaskActionClient client) throws IOException
   {
     final NavigableMap<DateTime, List<TaskLock>> taskLockMap = new TreeMap<>();
@@ -353,6 +381,7 @@ public class KillUnusedSegmentsTask extends AbstractFixedIntervalTask
    * Determines subset of segments without referenced load specs that can be safely killed by
    * looking at the segment upgrades and used segment load specs
    * @param unusedSegments input segments
+   * @param unusedSegmentIds IDs of the input segments
    * @param upgradedFromSegmentIds segment to parent mapping
    * @param usedSegmentLoadSpecs load specs of used segments
    * @param taskActionClient task action client
@@ -360,13 +389,13 @@ public class KillUnusedSegmentsTask extends AbstractFixedIntervalTask
    */
   private List<DataSegment> getKillableSegments(
       List<DataSegment> unusedSegments,
+      Set<String> unusedSegmentIds,
       Map<String, String> upgradedFromSegmentIds,
       Set<Map<String, Object>> usedSegmentLoadSpecs,
       TaskActionClient taskActionClient
   )
   {
-
-    // Determine parentId for each unused segment
+    // Determine parentId (or self, if no parent) for each unused segment
     final Map<String, Set<DataSegment>> parentIdToUnusedSegments = new HashMap<>();
     for (DataSegment segment : unusedSegments) {
       final String segmentId = segment.getId().toString();
@@ -383,18 +412,27 @@ public class KillUnusedSegmentsTask extends AbstractFixedIntervalTask
       );
       if (response != null && response.getUpgradedToSegmentIds() != null) {
         response.getUpgradedToSegmentIds().forEach((parent, children) -> {
-          if (!CollectionUtils.isNullOrEmpty(children)) {
-            // Do not kill segment if its parent or any of its siblings still exist in metadata store
+          if (!unusedSegmentIds.containsAll(children)) {
+            // Do not kill segment if its load spec is shared by another segment
+            // which is not being killed.
+            LOG.info(
+                "Skipping kill of segments[%s] as its load spec is shared by segment IDs[%s].",
+                parentIdToUnusedSegments.get(parent), children
+            );
             parentIdToUnusedSegments.remove(parent);
           }
         });
       }
     }
     catch (Exception e) {
-      LOG.warn(
+      // Do not proceed with the kill of any segment as we cannot be sure if their
+      // load specs are shared by any other segment
+      throw new ISE(
           e,
-          "Could not retrieve referenced ids using task action[retrieveUpgradedToSegmentIds]."
-          + " Overlord may be on an older version."
+          "Could not perform task action[retrieveUpgradedToSegmentIds] to retrieve"
+          + " segment IDs which share load specs with segments being killed."
+          + " Stopping kill task to avoid data loss in case the segment files"
+          + " are shared by other segments."
       );
     }
 
