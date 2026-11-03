@@ -188,6 +188,34 @@ public class TaskQueueTest extends IngestionTestBase
   }
 
   @Test
+  public void testManageQueuedTasksDoesNothingWhenInactive() throws Exception
+  {
+    // Add a task to the queue while active
+    final TestTask task = new TestTask("t1", Intervals.of("2021-01/P1M"));
+    taskQueue.add(task);
+
+    // Now set the queue to inactive (simulating stop())
+    taskQueue.setActive(false);
+
+    // Call manageQueuedTasks - it should exit early without starting the task
+    taskQueue.manageQueuedTasks();
+
+    // Verify task was NOT started (it should still be incomplete)
+    Assert.assertFalse(task.isDone());
+
+    // Verify task is still in queue
+    Assert.assertTrue(taskQueue.getTasks().contains(task));
+    final Optional<TaskStatus> taskStatus = taskQueue.getTaskStatus(task.getId());
+    Assert.assertTrue(taskStatus.isPresent());
+    Assert.assertEquals(TaskState.RUNNING, taskStatus.get().getStatusCode());
+
+    // Verify no metrics were emitted since no tasks were processed
+    serviceEmitter.verifyNotEmitted("task/waiting/time");
+    serviceEmitter.verifyNotEmitted("task/run/time");
+  }
+
+
+  @Test
   public void testShutdownReleasesTaskLock() throws Exception
   {
     // Create a Task and add it to the TaskQueue
