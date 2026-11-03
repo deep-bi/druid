@@ -1115,7 +1115,6 @@ libraries:
 name: Jetbrains Annotations
 license_category: binary
 module: extensions/druid-kubernetes-extensions
-module: extensions/kubernetes-extensions
 license_name: Apache License version 2.0
 version: 13.0
 libraries:
