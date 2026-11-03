@@ -19,7 +19,7 @@ on:
   workflow_dispatch:
     inputs:
       jdk:
-        description: "JDK to test with; 'recommended' picks the JDK for this Druid release line, others must be supported by it"
+        description: "JDK to test with; recommended uses the release line's default"
         required: false
         type: choice
         default: recommended
@@ -46,6 +46,10 @@ concurrency:
 permissions:
   contents: read
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   unit-tests:
     name: "unit tests (${{ matrix.name }})"
@@ -54,42 +58,47 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Test classes are split by first letter, as in upstream ci.yml. QTest is long, so it runs alone.
         include:
-          - name: "C"
-            tests: "!QTest,C*"
-          - name: "H-U-V"
-            tests: "!QTest,H*,U*,V*"
-          - name: "N-Q-S"
-            tests: "!QTest,N*,Q*,S*"
-          - name: "B-O-R"
-            tests: "!QTest,B*,O*,R*"
-          - name: "G-J-K"
-            tests: "!QTest,G*,J*,K*"
-          - name: "F-L-M"
-            tests: "!QTest,F*,L*,M*"
-          - name: "A-D-I-X-Y-Z"
-            tests: "!QTest,A*,D*,I*,X*,Y*,Z*"
-          - name: "E-P-T-W"
-            tests: "!QTest,E*,P*,T*,W*"
-          - name: "QTest"
-            tests: "QTest"
+          - name: C
+            letters: C
+          - name: H-U-V
+            letters: HUV
+          - name: N-Q-S
+            letters: NQS
+          - name: B-O-R
+            letters: BOR
+          - name: G-J-K
+            letters: GJK
+          - name: F-L-M
+            letters: FLM
+          - name: A-D-I-X-Y-Z
+            letters: ADIXYZ
+          - name: E-P-T-W
+            letters: EPTW
+          - name: QTest
+            tests: 'QTest,QTest$*'
+          # Isolate the suite involved in the Surefire memory failure.
+          # The larger heap is for Maven/Surefire's controller process.
+          - name: TopNQueryRunnerTest
+            tests: 'TopNQueryRunnerTest,TopNQueryRunnerTest$*'
+            maven_heap: 4g
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Resolve JDK and Maven projects
+      - name: Resolve JDK, Maven projects and test selection
         id: resolve
         env:
           REQUESTED_JDK: ${{ inputs.jdk || 'recommended' }}
+          LETTERS: ${{ matrix.letters }}
+          EXPLICIT_TESTS: ${{ matrix.tests }}
         run: |
           set -euo pipefail
           version=$(python3 -c "import xml.etree.ElementTree as ET; print(ET.parse('pom.xml').getroot().find('{http://maven.apache.org/POM/4.0.0}version').text)")
           major="${version%%.*}"
 
-          # Supported JDKs come from docs/operations/java.md of each release line. The recommended
-          # JDK is the one deepbi-release.yml builds that line with.
+          # Preserve the existing release-line JDK policy.
           case "$major" in
             31)    supported="8 11 17"; recommended=17 ;;
             34)    supported="11 17";   recommended=17 ;;
@@ -101,7 +110,7 @@ jobs:
               ;;
           esac
 
-          if [[ "$REQUESTED_JDK" == "recommended" ]]; then
+          if [[ "$REQUESTED_JDK" == recommended ]]; then
             jdk="$recommended"
           elif [[ " $supported " == *" $REQUESTED_JDK "* ]]; then
             jdk="$REQUESTED_JDK"
@@ -110,7 +119,6 @@ jobs:
             exit 1
           fi
 
-          # Older release lines still carry integration test modules; keep them out of the unit test run.
           excludes=()
           for module in integration-tests integration-tests-ex/tools integration-tests-ex/image integration-tests-ex/cases; do
             if [[ -f "$module/pom.xml" ]]; then
@@ -118,9 +126,33 @@ jobs:
             fi
           done
 
-          echo "Druid $version, JDK $jdk, excluded projects: ${excludes[*]:-none}"
+          if [[ -n "$EXPLICIT_TESTS" ]]; then
+            tests="$EXPLICIT_TESTS"
+          else
+            [[ "$LETTERS" =~ ^[A-Z]+$ ]]
+            patterns=()
+            for ((i=0; i<${#LETTERS}; i++)); do
+              letter="${LETTERS:i:1}"
+              # Use normal Surefire test naming conventions, rather than C*, I*, etc.
+              # Preserve nested classes, which Druid explicitly enables in its POM.
+              for suffix in Test Tests TestCase; do
+                patterns+=("${letter}*${suffix}" "${letter}*${suffix}\$*")
+              done
+            done
+            # Surefire also recognizes names starting with Test; they belong to T.
+            if [[ "$LETTERS" == *T* ]]; then
+              patterns+=('Test*')
+            fi
+            # These suites run only in their dedicated shards, including nested classes.
+            patterns+=('!QTest' '!QTest$*' '!TopNQueryRunnerTest' '!TopNQueryRunnerTest$*')
+            tests=$(IFS=,; echo "${patterns[*]}")
+          fi
+
+          echo "Druid $version, JDK $jdk"
+          echo "Selected tests: $tests"
           echo "jdk=$jdk" >> "$GITHUB_OUTPUT"
           echo "projects=$(IFS=,; echo "${excludes[*]:-}")" >> "$GITHUB_OUTPUT"
+          echo "tests=$tests" >> "$GITHUB_OUTPUT"
 
       - name: Set up JDK ${{ steps.resolve.outputs.jdk }}
         uses: actions/setup-java@v4
@@ -131,9 +163,13 @@ jobs:
 
       - name: Run unit tests
         env:
-          TESTS: ${{ matrix.tests }}
+          TESTS: ${{ steps.resolve.outputs.tests }}
           PROJECTS: ${{ steps.resolve.outputs.projects }}
-          MAVEN_OPTS: -Xmx3g
+          # This controls Maven, not the forked JVM's POM-defined heap.
+          MAVEN_OPTS: >-
+            -Xmx${{ matrix.maven_heap || '3g' }}
+            -XX:+HeapDumpOnOutOfMemoryError
+            -XX:HeapDumpPath=${{ runner.temp }}/maven.hprof
         run: |
           set -euo pipefail
           args=(
@@ -142,6 +178,8 @@ jobs:
             -Dweb.console.skip=true
             -Djacoco.skip=true
             -Dsurefire.failIfNoSpecifiedTests=false
+            -Dsurefire.trimStackTrace=false
+            -DforkCount=1
             "-Dtest=$TESTS"
             -fae
           )
@@ -150,8 +188,8 @@ jobs:
           fi
           mvn "${args[@]}"
 
-      - name: Upload test reports
-        if: failure()
+      - name: Upload test reports and crash diagnostics
+        if: ${{ failure() || cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: unit-test-reports-jdk${{ steps.resolve.outputs.jdk }}-${{ matrix.name }}
@@ -159,15 +197,21 @@ jobs:
             **/target/surefire-reports/**
             **/hs_err_pid*
             **/*.hprof
+            ${{ runner.temp }}/maven.hprof
           if-no-files-found: ignore
           retention-days: 14
 
-  # Single status to require in branch protection, since matrix job names vary.
   unit-tests-result:
     name: "unit tests result"
-    if: always()
+    if: ${{ always() }}
     needs: unit-tests
     runs-on: ubuntu-latest
     steps:
       - name: Check unit test shards
-        run: test "${{ needs.unit-tests.result }}" == "success"
+        env:
+          RESULT: ${{ needs.unit-tests.result }}
+        run: |
+          if [[ "$RESULT" != success ]]; then
+            echo "::error::Unit test shards finished with status: $RESULT"
+            exit 1
+          fi
