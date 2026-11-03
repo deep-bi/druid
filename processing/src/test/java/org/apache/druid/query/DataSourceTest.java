@@ -26,12 +26,13 @@ import org.apache.druid.query.aggregation.LongSumAggregatorFactory;
 import org.apache.druid.query.dimension.DefaultDimensionSpec;
 import org.apache.druid.query.groupby.GroupByQuery;
 import org.apache.druid.segment.TestHelper;
+import org.apache.druid.testing.InitializedNullHandlingTest;
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.io.IOException;
 
-public class DataSourceTest
+public class DataSourceTest extends InitializedNullHandlingTest
 {
   private static final ObjectMapper JSON_MAPPER = TestHelper.makeJsonMapper();
 

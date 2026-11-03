@@ -25,11 +25,12 @@ import org.apache.druid.query.QueryRunnerTestHelper;
 import org.apache.druid.query.aggregation.DoubleMaxAggregatorFactory;
 import org.apache.druid.query.dimension.DefaultDimensionSpec;
 import org.apache.druid.query.groupby.GroupByQuery.Builder;
+import org.apache.druid.testing.InitializedNullHandlingTest;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-public class GroupByQueryBuilderTest
+public class GroupByQueryBuilderTest extends InitializedNullHandlingTest
 {
   private Builder builder;
 

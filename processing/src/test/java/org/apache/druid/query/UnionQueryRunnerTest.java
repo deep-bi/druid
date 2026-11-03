@@ -24,13 +24,14 @@ import junit.framework.Assert;
 import org.apache.druid.java.util.common.guava.Sequence;
 import org.apache.druid.java.util.common.guava.Sequences;
 import org.apache.druid.query.context.ResponseContext;
+import org.apache.druid.testing.InitializedNullHandlingTest;
 import org.junit.Test;
 
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-public class UnionQueryRunnerTest
+public class UnionQueryRunnerTest extends InitializedNullHandlingTest
 {
   @Test
   public void testUnionQueryRunner()

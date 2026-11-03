@@ -26,6 +26,7 @@ import org.apache.druid.query.QueryRunnerTestHelper;
 import org.apache.druid.query.aggregation.post.ArithmeticPostAggregator;
 import org.apache.druid.query.aggregation.post.ConstantPostAggregator;
 import org.apache.druid.query.aggregation.post.FieldAccessPostAggregator;
+import org.apache.druid.testing.InitializedNullHandlingTest;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -34,7 +35,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
-public class AggregatorUtilTest
+public class AggregatorUtilTest extends InitializedNullHandlingTest
 {
 
   @Test
