@@ -25,6 +25,9 @@ import com.google.common.collect.ImmutableRangeSet;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Range;
 import com.google.common.collect.RangeSet;
+import org.apache.druid.data.input.StringTuple;
+import org.apache.druid.segment.column.ColumnType;
+import org.apache.druid.timeline.partition.DimensionRangeShardSpec;
 import org.apache.druid.timeline.partition.ShardSpec;
 import org.easymock.EasyMock;
 import org.junit.Assert;
@@ -80,6 +83,49 @@ public class DimFilterUtilsTest
     assertFilterResult(filter1, Collections.emptySet(), shards, ImmutableSet.copyOf(shards));
   }
 
+  @Test
+  public void testFilterShardsNumericRange()
+  {
+    // Regression test for https://github.com/apache/druid/issues/19408
+    final ShardSpec shard = rangeShardSpec("id", "100", "200");
+    final DimFilter filter = new RangeFilter("id", ColumnType.LONG, 80L, null, false, false, null);
+
+    assertFilterResult(filter, null, ImmutableList.of(shard), ImmutableSet.of(shard));
+  }
+
+  @Test
+  public void testFilterShardsNumericEquality()
+  {
+    // Regression test for https://github.com/apache/druid/issues/19408. The string "1" is not within the
+    // ["1.1", "1.9"] shard range, but the LONG value 1L matches rows with values like "1.1" or "1.9", so the
+    // shard must not be pruned.
+    final ShardSpec shard = rangeShardSpec("id", "1.1", "1.9");
+    final DimFilter filter = new EqualityFilter("id", ColumnType.LONG, 1L, null);
+
+    assertFilterResult(filter, null, ImmutableList.of(shard), ImmutableSet.of(shard));
+  }
+
+  @Test
+  public void testFilterShardsNumericIn()
+  {
+    // Regression test for https://github.com/apache/druid/issues/19408. The strings "1" and "2" are not within the
+    // ["1.1", "1.9"] shard range, but the LONG values 1L and 2L match rows with values like "1.1" or "1.9", so the
+    // shard must not be pruned.
+    final ShardSpec shard = rangeShardSpec("id", "1.1", "1.9");
+    final DimFilter filter = new TypedInFilter("id", ColumnType.LONG, ImmutableList.of(1L, 2L), null, null);
+
+    assertFilterResult(filter, null, ImmutableList.of(shard), ImmutableSet.of(shard));
+  }
+
+  @Test
+  public void testFilterShardsStringRangeStillPrunes()
+  {
+    final ShardSpec shard = rangeShardSpec("id", "100", "200");
+    final DimFilter filter = new RangeFilter("id", ColumnType.STRING, "80", null, false, false, null);
+
+    assertFilterResult(filter, null, ImmutableList.of(shard), ImmutableSet.of());
+  }
+
   private void assertFilterResult(
       DimFilter filter,
       Set<String> filterFields,
@@ -110,6 +156,17 @@ public class DimFilterUtilsTest
       builder.add(range);
     }
     return builder.build();
+  }
+
+  private static ShardSpec rangeShardSpec(String dimension, String start, String end)
+  {
+    return new DimensionRangeShardSpec(
+        ImmutableList.of(dimension),
+        StringTuple.create(start),
+        StringTuple.create(end),
+        0,
+        null
+    );
   }
 
   private static ShardSpec shardSpec(String dimension, boolean contained)
