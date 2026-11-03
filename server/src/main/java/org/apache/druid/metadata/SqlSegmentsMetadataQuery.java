@@ -1097,7 +1097,7 @@ public class SqlSegmentsMetadataQuery
    *                       which is either null or earlier than this value.
    * @param limit          Maximum number of segments to return
    */
-  public List<DataSegment> retrieveUnusedSegmentsWithExactInterval(
+  public List<DataSegmentPlus> retrieveUnusedSegmentsWithExactInterval(
       String dataSource,
       Interval interval,
       DateTime maxUpdatedTime,
@@ -1105,7 +1105,7 @@ public class SqlSegmentsMetadataQuery
   )
   {
     final String sql = StringUtils.format(
-        "SELECT id, payload FROM %1$s"
+        "SELECT id, payload, upgraded_from_segment_id FROM %1$s"
         + " WHERE dataSource = :dataSource AND used = false"
         + " AND %2$send%2$s = :end AND start = :start"
         + " AND (used_status_last_updated IS NULL OR used_status_last_updated <= :maxUpdatedTime)"
@@ -1113,7 +1113,7 @@ public class SqlSegmentsMetadataQuery
         dbTables.getSegmentsTable(), connector.getQuoteString(), connector.limitClause(limit)
     );
 
-    final List<DataSegment> segments = connector.inReadOnlyTransaction(
+    final List<DataSegmentPlus> segments = connector.inReadOnlyTransaction(
         (handle, status) ->
             handle.createQuery(sql)
                   .setFetchSize(connector.getStreamingFetchSize())
@@ -1121,7 +1121,7 @@ public class SqlSegmentsMetadataQuery
                   .bind("start", interval.getStart().toString())
                   .bind("end", interval.getEnd().toString())
                   .bind("maxUpdatedTime", maxUpdatedTime.toString())
-                  .map((index, r, ctx) -> mapToSegment(r))
+                  .map((index, r, ctx) -> mapToSegmentPlusUpgradedId(r))
                   .list()
     );
 
@@ -1732,13 +1732,26 @@ public class SqlSegmentsMetadataQuery
     }).iterator();
   }
 
+  /**
+   * Maps the given result set to a {@link DataSegmentPlus} with the segment
+   * payload and the {@code upgradedFromSegmentId} populated (if non-null).
+   */
   @Nullable
-  private DataSegment mapToSegment(ResultSet resultSet)
+  private DataSegmentPlus mapToSegmentPlusUpgradedId(ResultSet resultSet)
   {
     String segmentId = "";
     try {
       segmentId = resultSet.getString("id");
-      return JacksonUtils.readValue(jsonMapper, resultSet.getBytes("payload"), DataSegment.class);
+      final String upgradedFromSegmentId = resultSet.getString("upgraded_from_segment_id");
+      return new DataSegmentPlus(
+          JacksonUtils.readValue(jsonMapper, resultSet.getBytes("payload"), DataSegment.class),
+          null,
+          null,
+          null,
+          null,
+          null,
+          upgradedFromSegmentId
+      );
     }
     catch (Throwable t) {
       log.error(t, "Could not read segment with ID[%s]", segmentId);

@@ -415,7 +415,7 @@ public abstract class IngestionTestBase extends InitializedNullHandlingTest
     private final SegmentSchemaMapping segmentSchemaMapping
         = new SegmentSchemaMapping(CentralizedDatasourceSchemaConfig.SCHEMA_VERSION);
 
-    private TestLocalTaskActionClient(Task task)
+    public TestLocalTaskActionClient(Task task)
     {
       super(task, taskStorage, createTaskActionToolbox());
     }

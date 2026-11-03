@@ -69,7 +69,7 @@ public class TestIndexerMetadataStorageCoordinator implements IndexerMetadataSto
   }
 
   @Override
-  public List<DataSegment> retrieveUnusedSegmentsWithExactInterval(
+  public List<DataSegmentPlus> retrieveUnusedSegmentsWithExactInterval(
       String dataSource,
       Interval interval,
       DateTime maxUpdatedTime,
