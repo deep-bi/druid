@@ -1,9 +1,8 @@
-# Licensed to the Apache Software Foundation (ASF) under one or more
-# contributor license agreements.  See the NOTICE file distributed with
-# this work for additional information regarding copyright ownership.
-# The ASF licenses this file to You under the Apache License, Version 2.0
-# (the "License"); you may not use this file except in compliance with
-# the License.  You may obtain a copy of the License at
+# Copyright 2026 Deep BI, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
 #     http://www.apache.org/licenses/LICENSE-2.0
 #
@@ -35,6 +34,8 @@ jobs:
 
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # tags and history for the change list
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -68,9 +69,19 @@ jobs:
           chmod +x .github/scripts/test_dist.sh
           .github/scripts/test_dist.sh "${{ steps.get-version.outputs.content }}"
 
+      - name: Prepare release notes
+        id: notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          chmod +x .github/scripts/prepare-release-notes.sh
+          .github/scripts/prepare-release-notes.sh "${{ steps.get-version.outputs.content }}"
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
+          target_commitish: ${{ github.sha }}
+          body_path: ${{ steps.notes.outputs.path }}
           tag_name: "v${{ steps.get-version.outputs.content }}"
           name: "Release ${{ steps.get-version.outputs.content }}"
           draft: true
