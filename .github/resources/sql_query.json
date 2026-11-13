@@ -1,0 +1,1 @@
+{"query": "SELECT page, COUNT(*) AS Edits FROM wikipedia WHERE __time <= CURRENT_TIMESTAMP - INTERVAL '1' DAY GROUP BY page ORDER BY Edits DESC LIMIT 10"}
