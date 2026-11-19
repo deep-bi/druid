@@ -27,7 +27,7 @@
 #   POSTGRES_IMAGE  metadata store image for the test (default postgres:17.6). The 31.x and 34.x compose
 #                   files use postgres:latest, and PostgreSQL 18 images refuse their volume layout.
 #
-# Writes smoke.json to WORK_DIR, and compose-logs.txt when the compose test fails.
+# Writes smoke.json and file-differences.txt to WORK_DIR, and compose-logs.txt when the compose test fails.
 
 set -euo pipefail
 
@@ -116,13 +116,12 @@ passed "Extensions" "all $(wc -l < "${WORK_DIR}/expected-extensions.txt") extens
 docker run --rm --entrypoint sh "${image}" -c \
   'cd /opt/druid && find . ! -path "./var/*" \( -type f -o -type l \) | while IFS= read -r f; do sha256sum "$f"; done' \
   | LC_ALL=C sort -k2 > "${WORK_DIR}/image-files.sha256"
-LC_ALL=C sort -k2 "${WORK_DIR}/expected-files.sha256" > "${WORK_DIR}/expected-files.sorted"
-if ! diff -q "${WORK_DIR}/expected-files.sorted" "${WORK_DIR}/image-files.sha256" > /dev/null; then
-  differences="$(diff "${WORK_DIR}/expected-files.sorted" "${WORK_DIR}/image-files.sha256" \
-    | sed -n 's/^\([<>]\) [0-9a-f]*  \(.*\)/\1 \2/p' | head -5 | tr '\n' ' ')"
-  failed "Files" "/opt/druid differs from the release assets (< assets, > image): ${differences}"
+compare_checksums "${WORK_DIR}/expected-files.sha256" "${WORK_DIR}/image-files.sha256" \
+  > "${WORK_DIR}/file-differences.txt"
+if [[ -s "${WORK_DIR}/file-differences.txt" ]]; then
+  failed "Files" "$(wc -l < "${WORK_DIR}/file-differences.txt") paths in /opt/druid don't match the release assets: $(head -5 "${WORK_DIR}/file-differences.txt" | paste -sd ';' - | sed 's/;/; /g')"
 fi
-passed "Files" "$(wc -l < "${WORK_DIR}/image-files.sha256") files in /opt/druid match the release assets"
+passed "Files" "$(wc -l < "${WORK_DIR}/image-files.sha256") files in /opt/druid match the release assets and the Dockerfile's jar links"
 
 # 2. Compose stack
 

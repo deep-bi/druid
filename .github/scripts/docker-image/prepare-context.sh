@@ -26,8 +26,8 @@
 #                      a published release of a public repository are downloaded anonymously.
 #   WORK_DIR           working directory with release.json and assets.json from resolve-release.sh
 #
-# Writes assets-evidence.json, expected-extensions.txt, expected-files.sha256 and wikipedia-index.json
-# to WORK_DIR.
+# Writes assets-evidence.json, expected-extensions.txt, expected-files.sha256, dedupe.json and
+# wikipedia-index.json to WORK_DIR.
 
 set -euo pipefail
 
@@ -126,13 +126,25 @@ if [[ -n "${extra_extensions}" ]]; then
   warn "Extensions not listed in distribution/pom.xml: $(tr '\n' ' ' <<< "${extra_extensions}")"
 fi
 
-# Checksums of every file the image must contain, for the content check of the smoke test. Symlinks
-# count by their target, since the Dockerfile replaces duplicate jars with symlinks.
-(cd "${dist}" && find . ! -path './var/*' \( -type f -o -type l \) -print0 | LC_ALL=C sort -z \
-  | xargs -0 sha256sum) > "${WORK_DIR}/expected-files.sha256"
 cp "${dist}/quickstart/tutorial/wikipedia-index.json" "${WORK_DIR}/wikipedia-index.json"
+file_checksums "${dist}" > "${WORK_DIR}/asset-files.sha256"
 
 mkdir -p "${SRC_DIR}/distribution/target"
 tar -C "${merge_dir}" -cf - "apache-druid-${version}" | gzip -1 > "${SRC_DIR}/distribution/target/${bin}"
-rm -rf "${merge_dir}" "${assets_dir:?}/${bin}" "${assets_dir:?}/${contrib}"
-log "Build context ready: distribution/target/${bin}, $(wc -l < "${WORK_DIR}/tarball-extensions.txt") extensions, $(wc -l < "${WORK_DIR}/expected-files.sha256") files"
+
+# The checksums the image must have, for the content check of the smoke test. The Dockerfile turns every
+# jar whose file name it has seen before into a symlink to the first one, so the merged tree gets the
+# same treatment here, now that the build context is packed. A jar built separately, such as a Druid jar
+# in a contrib archive made for a backfill, can differ from the same-named jar it ends up linked to.
+linked="$(apply_jar_dedupe "${dist}" "${SRC_DIR}/distribution/docker")"
+file_checksums "${dist}" > "${WORK_DIR}/expected-files.sha256"
+relinked="$(compare_checksums "${WORK_DIR}/asset-files.sha256" "${WORK_DIR}/expected-files.sha256" \
+  | sed 's|^content differs: \./||')"
+jq -n --argjson linked "${linked}" --arg changed "${relinked}" \
+  '{linked: $linked, changed: ($changed | split("\n") | map(select(. != "")))}' > "${WORK_DIR}/dedupe.json"
+if [[ -n "${relinked}" ]]; then
+  warn "The image links $(wc -l <<< "${relinked}") jars of the assets to a same-named jar with other content: $(head -5 <<< "${relinked}" | tr '\n' ' ')"
+fi
+
+rm -rf "${merge_dir}" "${assets_dir:?}/${bin}" "${assets_dir:?}/${contrib}" "${WORK_DIR}/asset-files.sha256"
+log "Build context ready: distribution/target/${bin}, $(wc -l < "${WORK_DIR}/tarball-extensions.txt") extensions, $(wc -l < "${WORK_DIR}/expected-files.sha256") files, ${linked} jars linked as in the Dockerfile"

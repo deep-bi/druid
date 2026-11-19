@@ -154,8 +154,10 @@ jobs:
           path: |
             ${{ runner.temp }}/docker-image/release.json
             ${{ runner.temp }}/docker-image/assets-evidence.json
+            ${{ runner.temp }}/docker-image/dedupe.json
             ${{ runner.temp }}/docker-image/build.json
             ${{ runner.temp }}/docker-image/smoke.json
+            ${{ runner.temp }}/docker-image/file-differences.txt
             ${{ runner.temp }}/docker-image/publish.json
             ${{ runner.temp }}/docker-image/floating.json
             ${{ runner.temp }}/docker-image/evidence.json

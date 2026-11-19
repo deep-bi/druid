@@ -331,3 +331,51 @@ check_contrib_archive() {
     fail "${name} contains no extension files"
   fi
 }
+
+# file_checksums <druid home>: prints "<sha256>  ./<path>" for every file and symlink under it except var/,
+# sorted by path. A symlink counts by the file it points at.
+file_checksums() {
+  (cd "$1" && find . ! -path './var/*' \( -type f -o -type l \) -print0 | LC_ALL=C sort -z \
+    | xargs -0 -r sha256sum)
+}
+
+# compare_checksums <expected> <actual>: compares two lists of "<sha256>  <path>" lines and prints one
+# sorted line per path that differs: "content differs: <path>", "missing: <path>" for a path only in
+# <expected>, or "extra: <path>" for a path only in <actual>. Prints nothing when they match.
+compare_checksums() {
+  # The expected list is read up front, so an empty list or the same file twice still compares right.
+  awk -v expected="$1" '
+    BEGIN { while ((getline line < expected) > 0) want[substr(line, 67)] = substr(line, 1, 64) }
+    {
+      path = substr($0, 67)
+      seen[path] = 1
+      if (!(path in want)) print "extra: " path
+      else if (want[path] != substr($0, 1, 64)) print "content differs: " path
+    }
+    END { for (path in want) if (!(path in seen)) print "missing: " path }
+  ' "$2" | LC_ALL=C sort
+}
+
+# apply_jar_dedupe <druid home> <docker dir>: when <docker dir>/Dockerfile runs deduplicate_jars.sh, runs
+# that script on <druid home>, which changes it in place the way the image build does: every jar whose
+# file name was seen before becomes a symlink to the first one. Prints how many links it made.
+apply_jar_dedupe() {
+  local home=$1 docker_dir=$2 before after
+  if ! grep -q 'deduplicate_jars.sh' "${docker_dir}/Dockerfile"; then
+    echo 0
+    return 0
+  fi
+  if [[ ! -f "${docker_dir}/deduplicate_jars.sh" ]]; then
+    fail "${docker_dir}/Dockerfile runs deduplicate_jars.sh, but ${docker_dir} has no such script"
+  fi
+  # The script links to the paths it finds and matches patterns such as */lib/*.jar against whole paths,
+  # so the home must be absolute and must not sit under a directory with one of those names.
+  if [[ "${home}" != /* || "${home}/" =~ /(lib|extensions|hadoop-dependencies)/ ]]; then
+    fail "Cannot deduplicate the jars under ${home}: it must be an absolute path outside any lib, extensions or hadoop-dependencies directory"
+  fi
+  before="$(find "${home}" -type l | wc -l)"
+  # The image sorts with busybox, which compares bytes, so this picks the same first jar of each name.
+  LC_ALL=C bash "${docker_dir}/deduplicate_jars.sh" "${home}" > /dev/null
+  after="$(find "${home}" -type l | wc -l)"
+  echo $(( after - before ))
+}

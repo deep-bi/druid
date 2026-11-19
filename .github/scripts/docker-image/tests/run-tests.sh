@@ -513,6 +513,73 @@ if [[ -f "${REPO_ROOT}/distribution/pom.xml" ]]; then
   expect "this checkout's distribution/pom.xml lists over 40 extensions (${count})" true "${listed}"
 fi
 
+# File checksums and the Dockerfile's jar deduplication
+
+hash_of() {
+  printf '%s' "$1" | sha256sum | cut -d' ' -f1
+}
+home="${TMP}/druid-home/apache-druid-38.0.0-deepbi3"
+mkdir -p "${home}/lib" "${home}/extensions/x" "${home}/extensions/y" "${home}/var/druid"
+printf 'lib a' > "${home}/lib/a.jar"
+printf 'other a' > "${home}/extensions/x/a.jar"
+printf 'lib a' > "${home}/extensions/y/a.jar"
+printf 'c' > "${home}/extensions/x/c.jar"
+printf 'log' > "${home}/var/druid/x.log"
+ln -s ../../lib/a.jar "${home}/extensions/y/linked.jar"
+file_checksums "${home}" > "${TMP}/assets.sha256"
+expect "file checksums cover files and links, not var/" \
+  "./extensions/x/a.jar ./extensions/x/c.jar ./extensions/y/a.jar ./extensions/y/linked.jar ./lib/a.jar" \
+  "$(cut -c67- "${TMP}/assets.sha256" | lines)"
+expect "a link counts by its target" "$(hash_of 'lib a')" \
+  "$(grep -F './extensions/y/linked.jar' "${TMP}/assets.sha256" | cut -c1-64)"
+
+printf '%s  ./a\n%s  ./b\n%s  ./c\n' "$(hash_of 1)" "$(hash_of 2)" "$(hash_of 3)" > "${TMP}/want.sha256"
+printf '%s  ./a\n%s  ./b\n%s  ./d\n' "$(hash_of 1)" "$(hash_of 9)" "$(hash_of 4)" > "${TMP}/got.sha256"
+expect "compare reports changed, missing and extra paths" "content differs: ./b|extra: ./d|missing: ./c" \
+  "$(compare_checksums "${TMP}/want.sha256" "${TMP}/got.sha256" | paste -sd '|' -)"
+expect "identical lists compare clean" "" "$(compare_checksums "${TMP}/want.sha256" "${TMP}/want.sha256")"
+: > "${TMP}/none.sha256"
+expect "against an empty expected list every path is extra" "extra: ./a|extra: ./b|extra: ./d" \
+  "$(compare_checksums "${TMP}/none.sha256" "${TMP}/got.sha256" | paste -sd '|' -)"
+
+# The release's own script when the checkout has it, as in CI, otherwise a copy of its logic.
+docker_dir="${TMP}/docker"
+mkdir -p "${docker_dir}"
+echo 'RUN /deduplicate_jars.sh /opt/druid' > "${docker_dir}/Dockerfile"
+if [[ -f "${REPO_ROOT}/distribution/docker/deduplicate_jars.sh" ]]; then
+  cp "${REPO_ROOT}/distribution/docker/deduplicate_jars.sh" "${docker_dir}/"
+else
+  cat > "${docker_dir}/deduplicate_jars.sh" <<'SCRIPT'
+#!/bin/bash
+set -e
+JAR_DIR="$1"
+declare -A canonical
+while IFS= read -r jar; do
+  key=$(basename "$jar")
+  if [ -z "${canonical[$key]}" ]; then
+    canonical[$key]="$jar"
+  else
+    ln -sf "${canonical[$key]}" "$jar"
+  fi
+done < <(find $JAR_DIR -wholename '*/lib/*.jar' | sort ; find $JAR_DIR -wholename '*/extensions/*.jar' | sort)
+SCRIPT
+fi
+expect "the dedupe links every jar whose name was seen before" 2 "$(apply_jar_dedupe "${home}" "${docker_dir}")"
+file_checksums "${home}" > "${TMP}/image.sha256"
+expect "and only the jar with other bytes changes content" "content differs: ./extensions/x/a.jar" \
+  "$(compare_checksums "${TMP}/assets.sha256" "${TMP}/image.sha256")"
+expect "it now holds the first jar's content" "$(hash_of 'lib a')" \
+  "$(grep -F './extensions/x/a.jar' "${TMP}/image.sha256" | cut -c1-64)"
+
+mkdir -p "${TMP}/docker-plain" "${TMP}/docker-no-script" "${TMP}/lib/apache-druid-1"
+echo 'FROM scratch' > "${TMP}/docker-plain/Dockerfile"
+echo 'RUN /deduplicate_jars.sh /opt/druid' > "${TMP}/docker-no-script/Dockerfile"
+expect "no dedupe when the Dockerfile doesn't run it" 0 "$(apply_jar_dedupe "${home}" "${TMP}/docker-plain")"
+expect_failure "fails when the Dockerfile runs a script the checkout lacks" \
+  apply_jar_dedupe "${home}" "${TMP}/docker-no-script"
+expect_failure "refuses a home under a lib directory" apply_jar_dedupe "${TMP}/lib/apache-druid-1" "${docker_dir}"
+expect_failure "refuses a relative home" apply_jar_dedupe druid-home "${docker_dir}"
+
 # Dockerfile base images
 
 cat > "${TMP}/Dockerfile" <<'DOCKERFILE'

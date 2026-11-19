@@ -16,9 +16,9 @@
 #--------------------------------------------------------------------
 
 # Writes the release evidence of a run (policy section 7.1) to evidence.json and to the job summary: tag,
-# source commit, the release re-check before the push, asset checksums, image digest, base image digests,
-# test results, floating tags and the run URL. Every part is optional, so a failed run still reports what
-# it got to.
+# source commit, the release re-check before the push, asset checksums, the jars the Dockerfile links,
+# image digest, base image digests, test results, floating tags and the run URL. Every part is optional,
+# so a failed run still reports what it got to.
 #
 # Environment:
 #   WORK_DIR  working directory with the JSON files of the other steps
@@ -43,7 +43,7 @@ part() {
 
 jq -n --arg run_url "${run_url}" --arg stage "${STAGE}" \
   --argjson release "$(part release.json)" --argjson release_check "$(part release-check.json)" \
-  --argjson assets "$(part assets-evidence.json)" \
+  --argjson assets "$(part assets-evidence.json)" --argjson dedupe "$(part dedupe.json)" \
   --argjson build "$(part build.json)" --argjson smoke "$(part smoke.json)" \
   --argjson publish "$(part publish.json)" --argjson floating "$(part floating.json)" '{
     stage: $stage,
@@ -51,6 +51,7 @@ jq -n --arg run_url "${run_url}" --arg stage "${STAGE}" \
     release: $release,
     release_check: $release_check,
     assets: $assets,
+    jar_dedupe: $dedupe,
     image: $build,
     tests: $smoke,
     publish: $publish,
@@ -81,6 +82,14 @@ markdown="$(jq -r '
       "| Compressed size | \(.image.compressed_size) bytes |",
       "| Runtime base verified | \(.image.runtime_base_verified | yesno) |",
       "| /bin/bash SHA-256 | \(.image.bash_static_sha256 | code) |"
+    else empty end),
+    (if .jar_dedupe then
+      "| Jar links | \(.jar_dedupe.linked) jars link to the first jar of the same name, as in the Dockerfile\(
+        if (.jar_dedupe.changed | length) > 0 then
+          "; \(.jar_dedupe.changed | length) of them hold other content than in the assets: \(
+            .jar_dedupe.changed[0:10] | map("`\(.)`") | join(", "))\(
+            if (.jar_dedupe.changed | length) > 10 then " and more" else "" end)"
+        else "" end) |"
     else empty end),
     (if .publish then
       "| Pushed to | \(.publish.reference | code) |",
