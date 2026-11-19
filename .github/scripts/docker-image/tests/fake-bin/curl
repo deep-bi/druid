@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+
+# Copyright 2026 Deep BI, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#--------------------------------------------------------------------
+
+# Fake curl for run-tests.sh, covering the requests of registry_digest in lib.sh: the Docker Hub token,
+# and manifest HEAD requests answered from $FAKE_REGISTRY/<registry>/<repository>/<reference>, a file
+# holding the digest. docker.io stands for registry-1.docker.io; any other registry is host:port.
+
+set -euo pipefail
+
+headers=/dev/null
+url=""
+while (( $# > 0 )); do
+  case "$1" in
+    -D) headers=$2; shift ;;
+    -H|-o|-w|--retry|--retry-delay) shift ;;
+    http://*|https://*) url=$1 ;;
+  esac
+  shift
+done
+
+case "${url}" in
+  https://auth.docker.io/token*)
+    echo '{"token": "fake"}'
+    exit 0
+    ;;
+  https://registry-1.docker.io/v2/*)
+    path="docker.io/${url#https://registry-1.docker.io/v2/}"
+    ;;
+  http://*/v2/*)
+    rest="${url#http://}"
+    path="${rest%%/v2/*}/${rest#*/v2/}"
+    ;;
+  *)
+    echo "fake curl: unexpected URL ${url}" >&2
+    exit 2
+    ;;
+esac
+
+file="${FAKE_REGISTRY:?FAKE_REGISTRY is not set}/${path/\/manifests\//\/}"
+if [[ -f "${file}" ]]; then
+  printf 'HTTP/1.1 200 OK\r\ndocker-content-digest: %s\r\n\r\n' "$(cat "${file}")" > "${headers}"
+  printf 200
+else
+  printf 'HTTP/1.1 404 Not Found\r\n\r\n' > "${headers}"
+  printf 404
+fi

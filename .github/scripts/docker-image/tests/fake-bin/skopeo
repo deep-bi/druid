@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+
+# Copyright 2026 Deep BI, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#--------------------------------------------------------------------
+
+# Fake skopeo for run-tests.sh. "skopeo copy [options] docker://<registry>/<repository>@<digest>
+# docker://<registry>/<repository>:<tag>" points the tag at the digest in the file registry of the fake
+# curl, $FAKE_REGISTRY/<registry>/<repository>/<tag>.
+
+set -euo pipefail
+
+if [[ "${1:-}" != copy || $# -lt 3 ]]; then
+  echo "fake skopeo: unsupported command: $*" >&2
+  exit 2
+fi
+from="${*: -2:1}"
+to="${*: -1}"
+from="${from#docker://}"
+to="${to#docker://}"
+if [[ "${from}" != *@* || "${to}" == *@* ]]; then
+  echo "fake skopeo: expected a copy from a digest to a tag, got ${from} -> ${to}" >&2
+  exit 2
+fi
+
+target="${FAKE_REGISTRY:?FAKE_REGISTRY is not set}/${to%:*}/${to##*:}"
+mkdir -p "$(dirname "${target}")"
+echo "${from##*@}" > "${target}"

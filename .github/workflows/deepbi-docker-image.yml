@@ -1,0 +1,264 @@
+# Copyright 2026 Deep BI, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Builds deepbi/druid:<version> from the assets of a deep-bi/druid release, smoke-tests it, pushes it to
+# Docker Hub and moves <major>.<minor>-latest and latest. Release branches call it when a release is
+# published (deepbi-docker-image-on-release.yml). Run it by hand from master to test a draft with
+# dry_run, or to publish a release that has no image yet. A backfill can turn off update_latest, which
+# leaves latest where it is. A version tag that exists on Docker Hub is never rebuilt or replaced. The
+# publish job reads the release again before it pushes, and the floating tags follow the releases GitHub
+# lists at that moment.
+
+name: "Deepbi Docker Image"
+
+on:
+  workflow_call:
+    inputs:
+      release_tag:
+        description: "Release tag, for example v38.0.0-deepbi4"
+        type: string
+        required: true
+      dry_run:
+        description: "Build and test only, then rehearse the push against a local registry"
+        type: boolean
+        default: false
+      update_latest:
+        description: "Move latest as well. Turn it off for a backfill. <major>.<minor>-latest moves either way."
+        type: boolean
+        default: true
+    # A caller passes both by name, for example DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}. A secret the
+    # caller doesn't pass is empty here, even though the publish job runs in the dockerhub environment.
+    secrets:
+      DOCKERHUB_USERNAME:
+        description: "Docker Hub account of the push token, a secret of the dockerhub environment"
+        required: false
+      DOCKERHUB_TOKEN:
+        description: "Push token, a secret of the dockerhub environment"
+        required: false
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag, for example v38.0.0-deepbi4"
+        type: string
+        required: true
+      dry_run:
+        description: "Build and test only, then rehearse the push against a local registry"
+        type: boolean
+        default: true
+      update_latest:
+        description: "Move latest as well. Turn it off for a backfill. <major>.<minor>-latest moves either way."
+        type: boolean
+        default: true
+
+permissions: {}
+
+env:
+  IMAGE_REPOSITORY: deepbi/druid
+  SCRIPTS: ci/.github/scripts/docker-image
+
+jobs:
+  build-test:
+    name: Build and test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      # The API lists draft releases only to tokens with push access. Nothing in this job writes.
+      contents: write
+    concurrency:
+      group: deepbi-docker-image-${{ inputs.release_tag }}
+      cancel-in-progress: false
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      image_exists: ${{ steps.release.outputs.image_exists }}
+    env:
+      SRC_DIR: ${{ github.workspace }}/src
+    steps:
+      # The scripts come from the same commit as this workflow file, not from the release commit.
+      - name: Check out the workflow scripts
+        id: ci
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ job.workflow_repository || github.repository }}
+          ref: ${{ job.workflow_sha || 'master' }}
+          path: ci
+          sparse-checkout: .github
+          persist-credentials: false
+
+      - name: Resolve the release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          UPDATE_LATEST: ${{ inputs.update_latest }}
+        run: bash "${SCRIPTS}/resolve-release.sh"
+
+      - name: Check out the release commit
+        if: steps.release.outputs.image_exists != 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.release.outputs.commit }}
+          path: src
+          persist-credentials: false
+
+      - name: Download and verify the release assets
+        if: steps.release.outputs.image_exists != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash "${SCRIPTS}/prepare-context.sh"
+
+      # Writes the OCI archive that gets published, pushes it to a throwaway registry on the runner and
+      # pulls it back by digest, so the smoke test runs the exact image that gets published.
+      - name: Build the image
+        if: steps.release.outputs.image_exists != 'true'
+        run: bash "${SCRIPTS}/build-image.sh"
+
+      - name: Smoke-test the image
+        if: steps.release.outputs.image_exists != 'true'
+        run: bash "${SCRIPTS}/smoke-test.sh"
+
+      # The build step started the registry already, unless Docker Hub has the image and nothing was built.
+      - name: Rehearse the publish against a local registry
+        if: inputs.dry_run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REGISTRY: localhost:5000
+        run: |
+          source "${SCRIPTS}/lib.sh"
+          start_local_registry
+          bash "${SCRIPTS}/publish.sh"
+          bash "${SCRIPTS}/floating-tags.sh"
+
+      - name: Write the summary
+        if: always() && steps.ci.outcome == 'success'
+        env:
+          STAGE: ${{ inputs.dry_run && 'Dry run' || 'Build and test' }}
+        run: bash "${SCRIPTS}/summary.sh"
+
+      - name: Upload the build results
+        if: always() && steps.ci.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image-build-${{ inputs.release_tag }}
+          path: |
+            ${{ runner.temp }}/docker-image/release.json
+            ${{ runner.temp }}/docker-image/assets-evidence.json
+            ${{ runner.temp }}/docker-image/build.json
+            ${{ runner.temp }}/docker-image/smoke.json
+            ${{ runner.temp }}/docker-image/publish.json
+            ${{ runner.temp }}/docker-image/floating.json
+            ${{ runner.temp }}/docker-image/evidence.json
+            ${{ runner.temp }}/docker-image/expected-extensions.txt
+            ${{ runner.temp }}/docker-image/compose-logs.txt
+          retention-days: 90
+          if-no-files-found: ignore
+
+      - name: Upload the tested image
+        if: ${{ !inputs.dry_run && steps.release.outputs.image_exists != 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image-${{ inputs.release_tag }}
+          path: ${{ runner.temp }}/docker-image/image.oci.tar
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
+
+  publish:
+    name: Publish
+    needs: build-test
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: dockerhub
+    permissions:
+      contents: read
+    # One publish at a time across all tags, so two releases published together can't race on the
+    # floating tags. Waiting runs queue up instead of being cancelled.
+    concurrency:
+      group: deepbi-docker-image-publish
+      queue: max
+    steps:
+      - name: Check out the workflow scripts
+        id: ci
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ job.workflow_repository || github.repository }}
+          ref: ${{ job.workflow_sha || 'master' }}
+          path: ci
+          sparse-checkout: .github
+          persist-credentials: false
+
+      - name: Download the build results
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image-build-${{ inputs.release_tag }}
+          path: ${{ runner.temp }}/docker-image
+
+      # The build job recorded the release when the run started. The build, the smoke test, the approval
+      # and the queue above take time, so nothing is pushed unless the release is still published at the
+      # same commit.
+      - name: Re-check the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash "${SCRIPTS}/recheck-release.sh"
+
+      - name: Download the tested image
+        if: needs.build-test.outputs.image_exists != 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image-${{ inputs.release_tag }}
+          path: ${{ runner.temp }}/docker-image
+
+      - name: Log in to Docker Hub
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          AUTHFILE: ${{ runner.temp }}/dockerhub-auth.json
+        run: bash "${SCRIPTS}/registry-login.sh"
+
+      - name: Push the version tag
+        env:
+          AUTHFILE: ${{ runner.temp }}/dockerhub-auth.json
+        run: bash "${SCRIPTS}/publish.sh"
+
+      - name: Move the floating tags
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AUTHFILE: ${{ runner.temp }}/dockerhub-auth.json
+        run: bash "${SCRIPTS}/floating-tags.sh"
+
+      - name: Write the summary
+        if: always() && steps.ci.outcome == 'success'
+        env:
+          STAGE: Publish
+        run: bash "${SCRIPTS}/summary.sh"
+
+      - name: Upload the evidence
+        if: always() && steps.ci.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image-evidence-${{ inputs.release_tag }}
+          path: |
+            ${{ runner.temp }}/docker-image/evidence.json
+            ${{ runner.temp }}/docker-image/release-check.json
+            ${{ runner.temp }}/docker-image/publish.json
+            ${{ runner.temp }}/docker-image/floating.json
+          retention-days: 90
+          if-no-files-found: ignore
+
+      - name: Log out of Docker Hub
+        if: always()
+        run: |
+          docker logout docker.io > /dev/null 2>&1 || true
+          rm -f "${RUNNER_TEMP}/dockerhub-auth.json"
