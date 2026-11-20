@@ -24,6 +24,10 @@ jobs:
     permissions:
       contents: write
     timeout-minutes: 60
+    # One release run per branch at a time. A second run waits, then stops at the release check.
+    concurrency:
+      group: deepbi-release-${{ github.ref }}
+      cancel-in-progress: false
 
     steps:
       - name: Release Branch Name Validation
@@ -35,6 +39,11 @@ jobs:
 
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Check that the version has no release yet
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash .github/scripts/check-no-release.sh
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -62,21 +71,35 @@ jobs:
           test -f "distribution/target/apache-druid-${v}-bin.tar.gz"
           test -f "distribution/target/apache-druid-${v}-bin.tar.gz.sha512"
 
+      - name: Package contrib extensions
+        run: |
+          set -euo pipefail
+          bash .github/scripts/package-contrib-extensions.sh "${{ steps.get-version.outputs.content }}"
+
       - name: Run binary integration tests
         run: |
           set -euo pipefail
           chmod +x .github/scripts/test_dist.sh
           .github/scripts/test_dist.sh "${{ steps.get-version.outputs.content }}"
 
+      - name: Check again that the version has no release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash .github/scripts/check-no-release.sh "${{ steps.get-version.outputs.content }}"
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
+          target_commitish: ${{ github.sha }}
           tag_name: "v${{ steps.get-version.outputs.content }}"
           name: "Release ${{ steps.get-version.outputs.content }}"
           draft: true
           prerelease: true
+          fail_on_unmatched_files: true
           files: |
             distribution/target/apache-druid-${{ steps.get-version.outputs.content }}-bin.tar.gz
             distribution/target/apache-druid-${{ steps.get-version.outputs.content }}-bin.tar.gz.sha512
+            distribution/target/apache-druid-${{ steps.get-version.outputs.content }}-contrib-extensions.tar.gz
+            distribution/target/apache-druid-${{ steps.get-version.outputs.content }}-contrib-extensions.tar.gz.sha512
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
