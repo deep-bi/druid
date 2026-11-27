@@ -25,7 +25,6 @@ on:
         default: recommended
         options:
           - recommended
-          - "21"
           - "25"
   pull_request:
     branches:
@@ -94,6 +93,7 @@ jobs:
             34)    supported="11 17";   recommended=17 ;;
             36|37) supported="17 21";   recommended=17 ;;
             38)    supported="21 25";   recommended=21 ;;
+            39)    supported="25";      recommended=25 ;;
             *)
               echo "::error::No JDK table for Druid $version; add it to this workflow"
               exit 1
